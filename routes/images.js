@@ -156,9 +156,9 @@ async function processAIAnalysis(imageId, imageUrl, tempFilePath) {
     await pool.query(
       `INSERT INTO image_analysis 
        (image_id, occlusion_status, occlusion_comment, cavity_detected, 
-        cavity_locations, cavity_comment, gum_status, gum_comment, 
-        overall_score, recommendations, ai_confidence, raw_response) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        cavity_locations, cavity_comment, overall_score, recommendations, 
+        ai_confidence, raw_response) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         imageId,
         analysisData.occlusion_status || null,
@@ -166,8 +166,6 @@ async function processAIAnalysis(imageId, imageUrl, tempFilePath) {
         analysisData.cavity_detected || false,
         JSON.stringify(analysisData.cavity_locations || []),
         analysisData.cavity_comment || null,
-        analysisData.gum_status || null,
-        analysisData.gum_comment || null,
         analysisData.overall_score || null,
         analysisData.recommendations || null,
         analysisData.ai_confidence || null,
@@ -252,8 +250,6 @@ router.get('/:id/analysis', async (req, res) => {
         ia.cavity_detected,
         ia.cavity_locations,
         ia.cavity_comment,
-        ia.gum_status,
-        ia.gum_comment,
         ia.overall_score,
         ia.recommendations,
         ia.ai_confidence,
@@ -307,10 +303,6 @@ router.get('/:id/analysis', async (req, res) => {
             detected: result.cavity_detected,
             locations: result.cavity_locations,
             comment: result.cavity_comment
-          },
-          gum: {
-            status: result.gum_status,
-            comment: result.gum_comment
           },
           overall_score: result.overall_score,
           recommendations: result.recommendations,

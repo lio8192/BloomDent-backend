@@ -110,8 +110,6 @@ CREATE TABLE IF NOT EXISTS image_analysis (
   cavity_detected BOOLEAN DEFAULT FALSE COMMENT '충치 발견 여부',
   cavity_locations JSON COMMENT '충치 위치 정보',
   cavity_comment TEXT COMMENT '충치 코멘트',
-  gum_status VARCHAR(100) COMMENT '잇몸 상태',
-  gum_comment TEXT COMMENT '잇몸 코멘트',
   overall_score DECIMAL(3, 1) COMMENT '종합 점수 (0-10)',
   recommendations TEXT COMMENT '추천 사항',
   ai_confidence DECIMAL(5, 2) COMMENT 'AI 신뢰도 (%)',

@@ -171,12 +171,8 @@ curl http://localhost:3000/api/images/1/analysis
         "locations": ["우측 상악 제1대구치", "좌측 하악 제2소구치"],
         "comment": "2개의 충치가 발견되었습니다. 조기 치료가 권장됩니다."
       },
-      "gum": {
-        "status": "경미한 염증",
-        "comment": "잇몸에 경미한 염증이 관찰됩니다. 정기적인 스케일링이 필요합니다."
-      },
       "overall_score": 7.5,
-      "recommendations": "1. 충치 치료 예약\n2. 정기 스케일링\n3. 올바른 칫솔질 교육",
+      "recommendations": "1. 충치 치료 예약\n2. 정기 검진\n3. 올바른 칫솔질 교육",
       "ai_confidence": 92.5,
       "analyzed_at": "2025-11-11T10:31:30.000Z"
     }
@@ -300,10 +296,8 @@ Node.js 서버가 Flask AI 서버로 요청을 보낼 때 사용하는 API 형�
   "cavity_detected": true,
   "cavity_locations": ["우측 상악 제1대구치", "좌측 하악 제2소구치"],
   "cavity_comment": "2개의 충치가 발견되었습니다.",
-  "gum_status": "경미한 염증",
-  "gum_comment": "잇몸에 경미한 염증이 관찰됩니다.",
   "overall_score": 7.5,
-  "recommendations": "1. 충치 치료 예약\n2. 정기 스케일링",
+  "recommendations": "1. 충치 치료 예약\n2. 정기 검진",
   "ai_confidence": 92.5
 }
 ```
@@ -336,8 +330,6 @@ def analyze_image():
         'cavity_detected': True,
         'cavity_locations': ['우측 상악 제1대구치'],
         'cavity_comment': '충치가 발견되었습니다.',
-        'gum_status': '양호',
-        'gum_comment': '잇몸 상태가 건강합니다.',
         'overall_score': 8.5,
         'recommendations': '정기 검진을 권장합니다.',
         'ai_confidence': 95.2
@@ -394,8 +386,6 @@ AI_SERVER_URL=http://localhost:5000
 - cavity_detected: 충치 발견 여부
 - cavity_locations: 충치 위치 (JSON)
 - cavity_comment: 충치 코멘트
-- gum_status: 잇몸 상태
-- gum_comment: 잇몸 코멘트
 - overall_score: 종합 점수
 - recommendations: 추천 사항
 - ai_confidence: AI 신뢰도
