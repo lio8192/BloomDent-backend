@@ -27,6 +27,13 @@
 - 객관식, 주관식, Yes/No 질문 지원
 - 설문 응답 저장 및 조회
 
+### 🖼️ AI 사진 분석
+- 치아 사진 업로드 (Cloudinary)
+- Flask AI 모델 서버 연동
+- 교합, 충치, 잇몸 상태 분석
+- 비동기 백그라운드 처리
+- 분석 결과 및 추천 사항 제공
+
 ---
 
 ## 🚀 빠른 시작
@@ -118,9 +125,17 @@ npm start
 - `PUT /api/appointments/:id/cancel` - 예약 취소
 - `GET /api/appointments/surveys/questions` - 설문 질문 조회
 
+### 사진 분석
+- `POST /api/images/upload` - 사진 업로드 및 분석 요청
+- `GET /api/images/:id/status` - 분석 상태 조회
+- `GET /api/images/:id/analysis` - 분석 결과 조회
+- `GET /api/images/user/:userId` - 사용자 이미지 목록
+- `DELETE /api/images/:id` - 이미지 삭제
+
 **📚 상세한 API 문서:**
 - [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) - 전체 API 명세
 - [API_USER_GUIDE.md](./API_USER_GUIDE.md) - 사용자 계정 API 가이드
+- [API_IMAGE_ANALYSIS.md](./API_IMAGE_ANALYSIS.md) - 사진 분석 API 가이드
 
 ---
 
@@ -243,9 +258,36 @@ curl http://localhost:3000/api/users/1/appointments
 
 ---
 
+## 🚀 배포
+
+### GitHub Actions (자동 배포)
+
+`main` 브랜치에 push하면 자동으로 배포됩니다:
+
+```bash
+git add .
+git commit -m "feat: 새로운 기능"
+git push origin main
+```
+
+### 수동 배포
+
+```bash
+# 배포 스크립트 실행
+npm run deploy
+
+# 또는
+./deploy.sh
+```
+
+**📚 상세한 배포 가이드는 [DEPLOYMENT.md](./DEPLOYMENT.md)를 참고하세요.**
+
+---
+
 ## 💡 참고사항
 
 - 환경 변수 파일(`.env`)은 절대 공개 저장소에 커밋하지 마세요!
 - 샘플 데이터는 서울 강남 지역 기준으로 작성되어 있습니다.
 - 위치 기반 검색은 Haversine 공식을 사용하여 거리를 계산합니다.
 - 예약 생성 시 트랜잭션을 사용하여 데이터 일관성을 보장합니다.
+- 프로덕션 환경에서는 PM2를 사용하여 프로세스를 관리하세요.

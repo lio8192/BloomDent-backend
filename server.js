@@ -20,11 +20,13 @@ const apiRoutes = require('./routes/api');
 const clinicsRoutes = require('./routes/clinics');
 const appointmentsRoutes = require('./routes/appointments');
 const usersRoutes = require('./routes/users');
+const imagesRoutes = require('./routes/images');
 
 app.use('/api', apiRoutes);
 app.use('/api/clinics', clinicsRoutes);
 app.use('/api/appointments', appointmentsRoutes);
 app.use('/api/users', usersRoutes);
+app.use('/api/images', imagesRoutes);
 
 // 루트 경로
 app.get('/', (req, res) => {
