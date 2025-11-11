@@ -1,0 +1,479 @@
+# 🦷 BloomDent API 문서
+
+## 📋 목차
+- [기본 정보](#기본-정보)
+- [치과 정보 API](#치과-정보-api)
+- [예약 시스템 API](#예약-시스템-api)
+
+---
+
+## 기본 정보
+
+**Base URL**: `http://localhost:3000`
+
+**응답 형식**: JSON
+
+**공통 응답 구조**:
+```json
+{
+  "success": true/false,
+  "message": "메시지",
+  "data": {}
+}
+```
+
+---
+
+## 치과 정보 API
+
+### 1. 모든 치과 목록 조회
+**GET** `/api/clinics`
+
+**응답 예시**:
+```json
+{
+  "success": true,
+  "count": 5,
+  "data": [
+    {
+      "id": 1,
+      "name": "서울밝은치과",
+      "latitude": "37.50127670",
+      "longitude": "127.03965970",
+      "address": "서울특별시 강남구 테헤란로 123",
+      "phone": "02-1234-5678",
+      "description": "첨단 장비를 갖춘 종합 치과입니다.",
+      "created_at": "2025-11-10T12:00:00.000Z",
+      "updated_at": "2025-11-10T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+### 2. 주변 치과 검색 (위치 기반)
+**GET** `/api/clinics/nearby`
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 | 기본값 |
+|---------|------|------|------|--------|
+| latitude | number | ✅ | 현재 위치의 위도 | - |
+| longitude | number | ✅ | 현재 위치의 경도 | - |
+| radius | number | ❌ | 검색 반경 (km) | 5 |
+
+**요청 예시**:
+```
+GET /api/clinics/nearby?latitude=37.5012767&longitude=127.0396597&radius=5
+```
+
+**응답 예시**:
+```json
+{
+  "success": true,
+  "count": 3,
+  "searchLocation": {
+    "latitude": 37.5012767,
+    "longitude": 127.0396597,
+    "radius": 5
+  },
+  "data": [
+    {
+      "id": 1,
+      "name": "서울밝은치과",
+      "latitude": "37.50127670",
+      "longitude": "127.03965970",
+      "address": "서울특별시 강남구 테헤란로 123",
+      "phone": "02-1234-5678",
+      "description": "첨단 장비를 갖춘 종합 치과입니다.",
+      "distance": 0.12
+    }
+  ]
+}
+```
+
+---
+
+### 3. 치과 이름/주소 검색
+**GET** `/api/clinics/search`
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| keyword | string | ✅ | 검색어 (이름 또는 주소) |
+
+**요청 예시**:
+```
+GET /api/clinics/search?keyword=강남
+```
+
+**응답 예시**:
+```json
+{
+  "success": true,
+  "count": 2,
+  "keyword": "강남",
+  "data": [...]
+}
+```
+
+---
+
+### 4. 치과 상세 정보 조회
+**GET** `/api/clinics/:id`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 설명 |
+|---------|------|------|
+| id | number | 치과 ID |
+
+**요청 예시**:
+```
+GET /api/clinics/1
+```
+
+**응답 예시**:
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "name": "서울밝은치과",
+    "latitude": "37.50127670",
+    "longitude": "127.03965970",
+    "address": "서울특별시 강남구 테헤란로 123",
+    "phone": "02-1234-5678",
+    "description": "첨단 장비를 갖춘 종합 치과입니다."
+  }
+}
+```
+
+---
+
+### 5. 예약 가능한 날짜 조회
+**GET** `/api/clinics/:id/available-dates`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 설명 |
+|---------|------|------|
+| id | number | 치과 ID |
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 | 기본값 |
+|---------|------|------|------|--------|
+| from_date | date | ❌ | 검색 시작 날짜 (YYYY-MM-DD) | 오늘 |
+| to_date | date | ❌ | 검색 종료 날짜 (YYYY-MM-DD) | 오늘+30일 |
+
+**요청 예시**:
+```
+GET /api/clinics/1/available-dates?from_date=2025-11-11&to_date=2025-11-20
+```
+
+**응답 예시**:
+```json
+{
+  "success": true,
+  "clinic_id": 1,
+  "count": 5,
+  "data": [
+    "2025-11-11",
+    "2025-11-12",
+    "2025-11-13"
+  ]
+}
+```
+
+---
+
+### 6. 특정 날짜의 예약 가능한 시간 조회
+**GET** `/api/clinics/:id/available-slots`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 설명 |
+|---------|------|------|
+| id | number | 치과 ID |
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| date | date | ✅ | 날짜 (YYYY-MM-DD) |
+
+**요청 예시**:
+```
+GET /api/clinics/1/available-slots?date=2025-11-11
+```
+
+**응답 예시**:
+```json
+{
+  "success": true,
+  "clinic_id": 1,
+  "date": "2025-11-11",
+  "count": 8,
+  "data": [
+    {
+      "id": 1,
+      "time_slot": "09:00:00",
+      "is_available": true
+    },
+    {
+      "id": 2,
+      "time_slot": "10:00:00",
+      "is_available": true
+    }
+  ]
+}
+```
+
+---
+
+## 예약 시스템 API
+
+### 1. 사전 자가진단 설문 질문 조회
+**GET** `/api/appointments/surveys/questions`
+
+**응답 예시**:
+```json
+{
+  "success": true,
+  "count": 8,
+  "data": [
+    {
+      "id": 1,
+      "question": "현재 치아에 통증이 있으신가요?",
+      "question_type": "yes_no",
+      "options": null,
+      "order_num": 1,
+      "is_active": true,
+      "created_at": "2025-11-10T12:00:00.000Z"
+    },
+    {
+      "id": 7,
+      "question": "방문 목적을 선택해주세요.",
+      "question_type": "multiple_choice",
+      "options": ["정기 검진", "충치 치료", "잇몸 치료", "임플란트", "교정", "기타"],
+      "order_num": 7,
+      "is_active": true,
+      "created_at": "2025-11-10T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+### 2. 예약 생성
+**POST** `/api/appointments`
+
+**Request Body**:
+```json
+{
+  "clinic_id": 1,
+  "slot_id": 3,
+  "patient_name": "홍길동",
+  "patient_phone": "010-1234-5678",
+  "patient_email": "hong@example.com",
+  "patient_birth_date": "1990-01-01",
+  "symptoms": "치아가 시린 증상이 있습니다.",
+  "survey_answers": [
+    {
+      "question_id": 1,
+      "answer": "yes"
+    },
+    {
+      "question_id": 2,
+      "answer": "no"
+    },
+    {
+      "question_id": 7,
+      "answer": "충치 치료"
+    }
+  ]
+}
+```
+
+**필수 필드**:
+- `clinic_id`: 치과 ID
+- `slot_id`: 예약 시간 슬롯 ID
+- `patient_name`: 예약자 이름
+- `patient_phone`: 예약자 전화번호
+
+**응답 예시**:
+```json
+{
+  "success": true,
+  "message": "예약이 성공적으로 생성되었습니다.",
+  "data": {
+    "id": 3,
+    "clinic_id": 1,
+    "slot_id": 3,
+    "patient_name": "홍길동",
+    "patient_phone": "010-1234-5678",
+    "patient_email": "hong@example.com",
+    "patient_birth_date": "1990-01-01",
+    "symptoms": "치아가 시린 증상이 있습니다.",
+    "status": "pending",
+    "clinic_name": "서울밝은치과",
+    "clinic_address": "서울특별시 강남구 테헤란로 123",
+    "clinic_phone": "02-1234-5678",
+    "appointment_date": "2025-11-11",
+    "appointment_time": "11:00:00",
+    "created_at": "2025-11-10T15:30:00.000Z"
+  }
+}
+```
+
+---
+
+### 3. 예약 상세 조회
+**GET** `/api/appointments/:id`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 설명 |
+|---------|------|------|
+| id | number | 예약 ID |
+
+**요청 예시**:
+```
+GET /api/appointments/1
+```
+
+**응답 예시**:
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "clinic_id": 1,
+    "slot_id": 1,
+    "patient_name": "김철수",
+    "patient_phone": "010-1111-2222",
+    "patient_email": "kim@example.com",
+    "patient_birth_date": "1990-05-15",
+    "symptoms": "치아 통증이 있습니다.",
+    "status": "confirmed",
+    "clinic_name": "서울밝은치과",
+    "clinic_address": "서울특별시 강남구 테헤란로 123",
+    "clinic_phone": "02-1234-5678",
+    "latitude": "37.50127670",
+    "longitude": "127.03965970",
+    "appointment_date": "2025-11-11",
+    "appointment_time": "09:00:00",
+    "created_at": "2025-11-10T12:00:00.000Z",
+    "updated_at": "2025-11-10T12:00:00.000Z",
+    "survey_answers": [
+      {
+        "id": 1,
+        "question_id": 1,
+        "question": "현재 치아에 통증이 있으신가요?",
+        "question_type": "yes_no",
+        "answer": "yes"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### 4. 전화번호로 예약 목록 조회
+**GET** `/api/appointments/patient/:phone`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 설명 |
+|---------|------|------|
+| phone | string | 예약자 전화번호 |
+
+**Query Parameters**:
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| status | string | ❌ | 예약 상태 필터 (pending/confirmed/completed/cancelled) |
+
+**요청 예시**:
+```
+GET /api/appointments/patient/010-1111-2222
+GET /api/appointments/patient/010-1111-2222?status=confirmed
+```
+
+**응답 예시**:
+```json
+{
+  "success": true,
+  "count": 2,
+  "data": [
+    {
+      "id": 1,
+      "clinic_id": 1,
+      "patient_name": "김철수",
+      "patient_phone": "010-1111-2222",
+      "status": "confirmed",
+      "clinic_name": "서울밝은치과",
+      "clinic_address": "서울특별시 강남구 테헤란로 123",
+      "clinic_phone": "02-1234-5678",
+      "appointment_date": "2025-11-11",
+      "appointment_time": "09:00:00"
+    }
+  ]
+}
+```
+
+---
+
+### 5. 예약 취소
+**PUT** `/api/appointments/:id/cancel`
+
+**Path Parameters**:
+| 파라미터 | 타입 | 설명 |
+|---------|------|------|
+| id | number | 예약 ID |
+
+**요청 예시**:
+```
+PUT /api/appointments/1/cancel
+```
+
+**응답 예시**:
+```json
+{
+  "success": true,
+  "message": "예약이 취소되었습니다.",
+  "data": {
+    "id": 1,
+    "status": "cancelled"
+  }
+}
+```
+
+---
+
+## 에러 응답
+
+모든 API는 에러 발생 시 다음 형식으로 응답합니다:
+
+```json
+{
+  "success": false,
+  "message": "에러 메시지",
+  "error": "상세 에러 내용 (개발 모드에서만)"
+}
+```
+
+**HTTP 상태 코드**:
+- `200`: 성공
+- `201`: 생성 성공
+- `400`: 잘못된 요청
+- `404`: 리소스를 찾을 수 없음
+- `500`: 서버 내부 오류
+- `503`: 서비스 이용 불가 (DB 연결 실패 등)
+
+---
+
+## 예약 상태 (status)
+
+| 상태 | 설명 |
+|------|------|
+| pending | 예약 대기 중 |
+| confirmed | 예약 확정 |
+| completed | 진료 완료 |
+| cancelled | 예약 취소 |
+
