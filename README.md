@@ -34,6 +34,13 @@
 - 비동기 백그라운드 처리
 - 분석 결과 및 추천 사항 제공
 
+### 📊 종합 건강 점수
+- 사용자별 종합 점수 관리
+- 치아 분석 + 설문 결과 기반 계산
+- 점수 이력 추적
+- 통계 및 대시보드 데이터
+- 리더보드 (순위)
+
 ---
 
 ## 🚀 빠른 시작
@@ -132,10 +139,18 @@ npm start
 - `GET /api/images/user/:userId` - 사용자 이미지 목록
 - `DELETE /api/images/:id` - 이미지 삭제
 
+### 종합 점수
+- `GET /api/scores/user/:userId` - 사용자 종합 점수 조회
+- `POST /api/scores/calculate/:userId` - 종합 점수 계산/업데이트
+- `GET /api/scores/user/:userId/history` - 점수 이력 조회
+- `GET /api/scores/user/:userId/statistics` - 점수 통계 조회
+- `GET /api/scores/leaderboard` - 리더보드 조회
+
 **📚 상세한 API 문서:**
 - [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) - 전체 API 명세
 - [API_USER_GUIDE.md](./API_USER_GUIDE.md) - 사용자 계정 API 가이드
 - [API_IMAGE_ANALYSIS.md](./API_IMAGE_ANALYSIS.md) - 사진 분석 API 가이드
+- [API_SCORES.md](./API_SCORES.md) - 종합 점수 API 가이드
 
 ---
 
@@ -176,6 +191,10 @@ BloomDent-backend/
 - **appointments** - 예약 정보 (user_id 참조)
 - **survey_questions** - 사전 자가진단 설문
 - **appointment_surveys** - 예약별 설문 응답
+- **dental_images** - 치아 사진 (Cloudinary)
+- **image_analysis** - 사진 분석 결과
+- **user_health_scores** - 사용자 종합 건강 점수
+- **score_history** - 점수 변화 이력
 
 ---
 

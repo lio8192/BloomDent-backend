@@ -119,3 +119,37 @@ CREATE TABLE IF NOT EXISTS image_analysis (
   INDEX idx_image_id (image_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='사진 분석 결과';
 
+-- 9. 사용자 종합 건강 점수 테이블
+CREATE TABLE IF NOT EXISTS user_health_scores (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  user_id INT NOT NULL,
+  overall_score DECIMAL(4, 1) DEFAULT 0 COMMENT '종합 건강 점수 (0-100)',
+  analysis_score DECIMAL(4, 1) DEFAULT 0 COMMENT '치아 분석 점수 (0-100)',
+  survey_score DECIMAL(4, 1) DEFAULT 0 COMMENT '설문 점수 (0-100)',
+  image_count INT DEFAULT 0 COMMENT '분석된 이미지 수',
+  survey_count INT DEFAULT 0 COMMENT '완료된 설문 수',
+  last_analysis_date DATE COMMENT '마지막 분석 날짜',
+  last_calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '마지막 계산 시간',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE KEY unique_user (user_id),
+  INDEX idx_user_id (user_id),
+  INDEX idx_overall_score (overall_score)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='사용자 종합 건강 점수';
+
+-- 10. 점수 이력 테이블
+CREATE TABLE IF NOT EXISTS score_history (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  user_id INT NOT NULL,
+  overall_score DECIMAL(4, 1) NOT NULL COMMENT '종합 점수',
+  analysis_score DECIMAL(4, 1) COMMENT '치아 분석 점수',
+  survey_score DECIMAL(4, 1) COMMENT '설문 점수',
+  score_type ENUM('manual', 'auto', 'initial') DEFAULT 'auto' COMMENT '계산 유형',
+  calculation_details JSON COMMENT '계산 상세 정보',
+  calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_user_id (user_id),
+  INDEX idx_calculated_at (calculated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='점수 이력';
+

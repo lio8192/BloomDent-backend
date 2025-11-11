@@ -21,12 +21,14 @@ const clinicsRoutes = require('./routes/clinics');
 const appointmentsRoutes = require('./routes/appointments');
 const usersRoutes = require('./routes/users');
 const imagesRoutes = require('./routes/images');
+const scoresRoutes = require('./routes/scores');
 
 app.use('/api', apiRoutes);
 app.use('/api/clinics', clinicsRoutes);
 app.use('/api/appointments', appointmentsRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/images', imagesRoutes);
+app.use('/api/scores', scoresRoutes);
 
 // 루트 경로
 app.get('/', (req, res) => {
