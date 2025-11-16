@@ -3,16 +3,51 @@ const router = express.Router();
 const bcrypt = require('bcrypt');
 const { pool } = require('../config/database');
 
-// 회원가입
-router.post('/register', async (req, res) => {
-  try {
-    const { username, password, name, phone, email } = req.body;
+// 설문 답변 검증 함수
+const validateSurveyAnswers = (surveyAnswers) => {
+  // 필수 키 목록
+  const requiredKeys = [
+    'visitedDentist',
+    'brushTwiceDaily',
+    'useOralCareProducts',
+    'replaceToothbrush',
+    'limitSweets',
+    'brushAfterMeal',
+    'scalingFluoride',
+    'noGumBleeding',
+    'noSmoking'
+  ];
 
-    // 필수 필드 검증
-    if (!username || !password || !name) {
+  // surveyAnswers가 객체인지 확인
+  if (!surveyAnswers || typeof surveyAnswers !== 'object') {
+    return { valid: false, message: '설문 답변은 객체 형식이어야 합니다.' };
+  }
+
+  // 모든 필수 키가 존재하는지 확인
+  for (const key of requiredKeys) {
+    if (!(key in surveyAnswers)) {
+      return { valid: false, message: `필수 설문 항목 '${key}'가 누락되었습니다.` };
+    }
+    
+    // 각 값이 boolean인지 확인
+    if (typeof surveyAnswers[key] !== 'boolean') {
+      return { valid: false, message: `'${key}'는 boolean 값이어야 합니다.` };
+    }
+  }
+
+  return { valid: true };
+};
+
+// 아이디 중복 체크
+router.get('/check-username', async (req, res) => {
+  try {
+    const { username } = req.query;
+
+    // username 파라미터 검증
+    if (!username) {
       return res.status(400).json({
         success: false,
-        message: '아이디, 비밀번호, 이름은 필수입니다.'
+        message: '아이디를 입력해주세요.'
       });
     }
 
@@ -22,7 +57,64 @@ router.post('/register', async (req, res) => {
       [username]
     );
 
+    const isAvailable = existingUsers.length === 0;
+
+    res.json({
+      success: true,
+      available: isAvailable,
+      message: isAvailable 
+        ? '사용 가능한 아이디입니다.' 
+        : '이미 사용 중인 아이디입니다.'
+    });
+
+  } catch (error) {
+    console.error('아이디 중복 체크 오류:', error);
+    res.status(500).json({
+      success: false,
+      message: '아이디 중복 체크 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  }
+});
+
+// 회원가입
+router.post('/register', async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { username, password, name, phone, email, surveyAnswers } = req.body;
+
+    // 필수 필드 검증
+    if (!username || !password || !name) {
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        message: '아이디, 비밀번호, 이름은 필수입니다.'
+      });
+    }
+
+    // 설문 답변 검증 (있는 경우)
+    if (surveyAnswers) {
+      const validation = validateSurveyAnswers(surveyAnswers);
+      if (!validation.valid) {
+        connection.release();
+        return res.status(400).json({
+          success: false,
+          message: validation.message
+        });
+      }
+    }
+
+    await connection.beginTransaction();
+
+    // username 중복 확인
+    const [existingUsers] = await connection.query(
+      'SELECT id FROM users WHERE username = ?',
+      [username]
+    );
+
     if (existingUsers.length > 0) {
+      await connection.rollback();
       return res.status(409).json({
         success: false,
         message: '이미 사용 중인 아이디입니다.'
@@ -34,15 +126,27 @@ router.post('/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
     // 사용자 생성
-    const [result] = await pool.query(
+    const [result] = await connection.query(
       'INSERT INTO users (username, password, name, phone, email) VALUES (?, ?, ?, ?, ?)',
       [username, hashedPassword, name, phone || null, email || null]
     );
 
+    const userId = result.insertId;
+
+    // 설문 답변이 있으면 self_check 테이블에 저장
+    if (surveyAnswers) {
+      await connection.query(
+        'INSERT INTO self_check (user_id, answers) VALUES (?, ?)',
+        [userId, JSON.stringify(surveyAnswers)]
+      );
+    }
+
+    await connection.commit();
+
     // 생성된 사용자 정보 조회 (비밀번호 제외)
-    const [newUsers] = await pool.query(
+    const [newUsers] = await connection.query(
       'SELECT id, username, name, phone, email, created_at FROM users WHERE id = ?',
-      [result.insertId]
+      [userId]
     );
 
     res.status(201).json({
@@ -54,6 +158,7 @@ router.post('/register', async (req, res) => {
     });
 
   } catch (error) {
+    await connection.rollback();
     console.error('회원가입 오류:', error);
     
     // MySQL 에러 코드 처리
@@ -69,6 +174,8 @@ router.post('/register', async (req, res) => {
       message: '회원가입 중 오류가 발생했습니다.',
       error: error.message
     });
+  } finally {
+    connection.release();
   }
 });
 
