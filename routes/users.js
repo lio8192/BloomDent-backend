@@ -3,6 +3,75 @@ const router = express.Router();
 const bcrypt = require('bcrypt');
 const { pool } = require('../config/database');
 
+// 회원가입
+router.post('/register', async (req, res) => {
+  try {
+    const { username, password, name, phone, email } = req.body;
+
+    // 필수 필드 검증
+    if (!username || !password || !name) {
+      return res.status(400).json({
+        success: false,
+        message: '아이디, 비밀번호, 이름은 필수입니다.'
+      });
+    }
+
+    // username 중복 확인
+    const [existingUsers] = await pool.query(
+      'SELECT id FROM users WHERE username = ?',
+      [username]
+    );
+
+    if (existingUsers.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: '이미 사용 중인 아이디입니다.'
+      });
+    }
+
+    // 비밀번호 해싱
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // 사용자 생성
+    const [result] = await pool.query(
+      'INSERT INTO users (username, password, name, phone, email) VALUES (?, ?, ?, ?, ?)',
+      [username, hashedPassword, name, phone || null, email || null]
+    );
+
+    // 생성된 사용자 정보 조회 (비밀번호 제외)
+    const [newUsers] = await pool.query(
+      'SELECT id, username, name, phone, email, created_at FROM users WHERE id = ?',
+      [result.insertId]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: '회원가입이 완료되었습니다.',
+      data: {
+        user: newUsers[0]
+      }
+    });
+
+  } catch (error) {
+    console.error('회원가입 오류:', error);
+    
+    // MySQL 에러 코드 처리
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({
+        success: false,
+        message: '이미 사용 중인 아이디입니다.'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: '회원가입 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  }
+});
+
 // 로그인
 router.post('/login', async (req, res) => {
   try {

@@ -1,0 +1,425 @@
+{
+	"info": {
+		"name": "BloomDent API",
+		"description": "BloomDent 백엔드 API 컬렉션",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Users",
+			"item": [
+				{
+					"name": "회원가입",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"testuser\",\n  \"password\": \"password123\",\n  \"name\": \"테스트 사용자\",\n  \"phone\": \"010-1234-5678\",\n  \"email\": \"test@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/register",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"register"
+							]
+						},
+						"description": "새로운 사용자 회원가입"
+					},
+					"response": []
+				},
+				{
+					"name": "로그인",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"testuser\",\n  \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"login"
+							]
+						},
+						"description": "사용자 로그인"
+					},
+					"response": []
+				},
+				{
+					"name": "사용자 정보 조회",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/users/:id",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"users",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
+							]
+						},
+						"description": "사용자 ID로 정보 조회"
+					},
+					"response": []
+				},
+				{
+					"name": "사용자 예약 목록",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/users/:id/appointments",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"users",
+								":id",
+								"appointments"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
+							]
+						},
+						"description": "사용자의 예약 목록 조회"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Clinics",
+			"item": [
+				{
+					"name": "전체 치과 목록",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/clinics",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"clinics"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "주변 치과 검색",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/clinics/nearby?latitude=37.5012767&longitude=127.0396597&radius=5",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"clinics",
+								"nearby"
+							],
+							"query": [
+								{
+									"key": "latitude",
+									"value": "37.5012767"
+								},
+								{
+									"key": "longitude",
+									"value": "127.0396597"
+								},
+								{
+									"key": "radius",
+									"value": "5"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "치과 검색",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/clinics/search?keyword=강남",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"clinics",
+								"search"
+							],
+							"query": [
+								{
+									"key": "keyword",
+									"value": "강남"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "치과 상세 정보",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/clinics/:id",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"clinics",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Appointments",
+			"item": [
+				{
+					"name": "예약 생성",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"user_id\": 1,\n  \"clinic_id\": 1,\n  \"slot_id\": 1,\n  \"patient_name\": \"홍길동\",\n  \"patient_phone\": \"010-1234-5678\",\n  \"patient_email\": \"hong@example.com\",\n  \"symptoms\": \"치아 통증\",\n  \"survey_answers\": [\n    {\"question_id\": 1, \"answer\": \"yes\"},\n    {\"question_id\": 2, \"answer\": \"no\"}\n  ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/appointments",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"appointments"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "예약 조회",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/appointments/:id",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "설문 질문 조회",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/appointments/surveys/questions",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								"surveys",
+								"questions"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Images",
+			"item": [
+				{
+					"name": "이미지 업로드",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "image",
+									"type": "file",
+									"src": []
+								},
+								{
+									"key": "user_id",
+									"value": "1",
+									"type": "text"
+								},
+								{
+									"key": "image_type",
+									"value": "front",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/images/upload",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"images",
+								"upload"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "분석 상태 조회",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/images/:id/status",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"images",
+								":id",
+								"status"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Health",
+			"item": [
+				{
+					"name": "서버 상태",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"health"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:3000"
+		}
+	]
+}
+
