@@ -48,6 +48,7 @@ async function setupDatabase() {
     await connection.query('DROP TABLE IF EXISTS survey_questions');
     await connection.query('DROP TABLE IF EXISTS appointment_slots');
     await connection.query('DROP TABLE IF EXISTS dental_clinics');
+    await connection.query('DROP TABLE IF EXISTS self_check');
     await connection.query('DROP TABLE IF EXISTS users');
     await connection.query('SET FOREIGN_KEY_CHECKS = 1');
     console.log('✅ 기존 테이블 삭제 완료\n');
