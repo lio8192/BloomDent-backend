@@ -51,18 +51,32 @@ npm install
 ```
 
 ### 2. 환경 변수 설정
-`.env` 파일을 생성하고 MariaDB 정보를 입력하세요:
+`.env` 파일을 생성하고 필요한 정보를 입력하세요:
 
 ```env
 PORT=3000
 NODE_ENV=development
 
+# 데이터베이스 설정
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=your_password
 DB_NAME=bloomdent_db
+
+# Cloudinary 설정 (이미지 업로드용)
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
+
+# AI 서버 URL (선택사항)
+AI_SERVER_URL=http://localhost:5000
 ```
+
+**Cloudinary 계정 생성 방법:**
+1. [Cloudinary](https://cloudinary.com/)에 가입
+2. Dashboard에서 `cloud_name`, `api_key`, `api_secret` 확인
+3. `.env` 파일에 위 값들을 입력
 
 ### 3. 데이터베이스 설정
 

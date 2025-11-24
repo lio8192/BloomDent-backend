@@ -48,6 +48,14 @@ router.post('/upload', upload.single('image'), async (req, res) => {
       });
     }
 
+    // user_id 필수 확인
+    if (!user_id) {
+      return res.status(400).json({
+        success: false,
+        message: '사용자 ID(user_id)가 필요합니다.'
+      });
+    }
+
     console.log('📤 이미지 업로드 시작:', req.file.originalname);
 
     // 1. 임시 파일 저장
@@ -73,13 +81,13 @@ router.post('/upload', upload.single('image'), async (req, res) => {
 
     console.log('✅ Cloudinary 업로드 완료:', cloudinaryResult.cloudinary_id);
 
-    // 3. DB에 이미지 정보 저장
+    // 3. DB에 이미지 정보 저장 (user_id와 cloudinary_url 저장)
     const [imageResult] = await pool.query(
       `INSERT INTO dental_images 
        (user_id, cloudinary_id, cloudinary_url, original_filename, image_type, analysis_status) 
        VALUES (?, ?, ?, ?, ?, 'pending')`,
       [
-        user_id || null,
+        user_id,
         cloudinaryResult.cloudinary_id,
         cloudinaryResult.cloudinary_url,
         req.file.originalname,
