@@ -43,6 +43,13 @@ async function setupDatabase() {
     // 기존 테이블 삭제 (외래키 제약 조건 때문에 순서 중요)
     console.log('🗑️  기존 테이블 삭제 중...');
     await connection.query('SET FOREIGN_KEY_CHECKS = 0');
+    await connection.query('DROP TABLE IF EXISTS score_history');
+    await connection.query('DROP TABLE IF EXISTS user_health_scores');
+    await connection.query('DROP TABLE IF EXISTS user_survey_responses');
+    await connection.query('DROP TABLE IF EXISTS survey_question_options');
+    await connection.query('DROP TABLE IF EXISTS survey_questions_master');
+    await connection.query('DROP TABLE IF EXISTS image_analysis');
+    await connection.query('DROP TABLE IF EXISTS dental_images');
     await connection.query('DROP TABLE IF EXISTS appointment_surveys');
     await connection.query('DROP TABLE IF EXISTS appointments');
     await connection.query('DROP TABLE IF EXISTS survey_questions');
@@ -68,6 +75,14 @@ async function setupDatabase() {
     
     await connection.query(seedData);
     console.log('✅ 샘플 데이터 삽입 완료\n');
+
+    // 설문 샘플 데이터 삽입
+    console.log('📋 설문 데이터 삽입 중...');
+    const seedSurveyPath = path.join(__dirname, 'database', 'seed_survey_data.sql');
+    const seedSurveyData = fs.readFileSync(seedSurveyPath, 'utf8');
+    
+    await connection.query(seedSurveyData);
+    console.log('✅ 설문 데이터 삽입 완료\n');
 
     // 테이블 확인
     console.log('📋 생성된 테이블 목록:');
