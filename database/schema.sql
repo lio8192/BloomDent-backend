@@ -119,37 +119,87 @@ CREATE TABLE IF NOT EXISTS image_analysis (
   INDEX idx_image_id (image_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='사진 분석 결과';
 
--- 9. 사용자 종합 건강 점수 테이블
+-- 9. 설문 문항 테이블
+CREATE TABLE IF NOT EXISTS survey_questions_master (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  question_number INT NOT NULL UNIQUE COMMENT '문항번호',
+  question_text TEXT NOT NULL COMMENT '문항내용',
+  max_score DECIMAL(5, 2) NOT NULL COMMENT '문항당배점',
+  is_active BOOLEAN DEFAULT TRUE COMMENT '활성화 여부',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_question_number (question_number)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='설문 문항';
+
+-- 10. 설문 응답 옵션 테이블
+CREATE TABLE IF NOT EXISTS survey_question_options (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  question_number INT NOT NULL COMMENT '문항번호',
+  option_number INT NOT NULL COMMENT '응답번호',
+  option_text VARCHAR(255) NOT NULL COMMENT '응답내용',
+  next_question_number INT COMMENT '다음문항 (NULL이면 설문 종료)',
+  score DECIMAL(5, 2) NOT NULL COMMENT '배점',
+  category ENUM('구강관리/양치습관', '구치/구강건조', '흡연/음주', '우식성 식품 섭취', '지각과민/불소', '구강악습관') NOT NULL COMMENT '카테고리',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (question_number) REFERENCES survey_questions_master(question_number) ON DELETE CASCADE,
+  UNIQUE KEY unique_option (question_number, option_number),
+  INDEX idx_question_number (question_number)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='설문 응답 옵션';
+
+-- 11. 사용자 설문 응답 테이블
+CREATE TABLE IF NOT EXISTS user_survey_responses (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  user_id INT NOT NULL COMMENT '사용자 ID',
+  survey_session_id VARCHAR(50) NOT NULL COMMENT '설문 세션 ID',
+  question_number INT NOT NULL COMMENT '문항번호',
+  option_number INT NOT NULL COMMENT '응답번호',
+  score DECIMAL(5, 2) NOT NULL COMMENT '획득 점수',
+  category VARCHAR(50) NOT NULL COMMENT '카테고리',
+  answered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (question_number) REFERENCES survey_questions_master(question_number) ON DELETE CASCADE,
+  INDEX idx_user_id (user_id),
+  INDEX idx_session (survey_session_id),
+  INDEX idx_answered_at (answered_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='사용자 설문 응답';
+
+-- 12. 사용자 카테고리별 건강 점수 테이블
 CREATE TABLE IF NOT EXISTS user_health_scores (
   id INT PRIMARY KEY AUTO_INCREMENT,
   user_id INT NOT NULL,
-  overall_score DECIMAL(4, 1) DEFAULT 0 COMMENT '종합 건강 점수 (0-100)',
-  analysis_score DECIMAL(4, 1) DEFAULT 0 COMMENT '치아 분석 점수 (0-100)',
-  survey_score DECIMAL(4, 1) DEFAULT 0 COMMENT '설문 점수 (0-100)',
-  image_count INT DEFAULT 0 COMMENT '분석된 이미지 수',
-  survey_count INT DEFAULT 0 COMMENT '완료된 설문 수',
-  last_analysis_date DATE COMMENT '마지막 분석 날짜',
-  last_calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '마지막 계산 시간',
+  total_score DECIMAL(5, 2) DEFAULT 0 COMMENT '총점 (0-100)',
+  oral_care_score DECIMAL(5, 2) DEFAULT 0 COMMENT '구강관리/양치습관 점수',
+  cavity_dryness_score DECIMAL(5, 2) DEFAULT 0 COMMENT '구치/구강건조 점수',
+  smoking_drinking_score DECIMAL(5, 2) DEFAULT 0 COMMENT '흡연/음주 점수',
+  cariogenic_food_score DECIMAL(5, 2) DEFAULT 0 COMMENT '우식성 식품 섭취 점수',
+  sensitivity_fluoride_score DECIMAL(5, 2) DEFAULT 0 COMMENT '지각과민/불소 점수',
+  oral_habits_score DECIMAL(5, 2) DEFAULT 0 COMMENT '구강악습관 점수',
+  last_survey_session_id VARCHAR(50) COMMENT '마지막 설문 세션 ID',
+  last_survey_date TIMESTAMP COMMENT '마지막 설문 날짜',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   UNIQUE KEY unique_user (user_id),
   INDEX idx_user_id (user_id),
-  INDEX idx_overall_score (overall_score)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='사용자 종합 건강 점수';
+  INDEX idx_total_score (total_score)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='사용자 카테고리별 건강 점수';
 
--- 10. 점수 이력 테이블
+-- 13. 점수 이력 테이블
 CREATE TABLE IF NOT EXISTS score_history (
   id INT PRIMARY KEY AUTO_INCREMENT,
   user_id INT NOT NULL,
-  overall_score DECIMAL(4, 1) NOT NULL COMMENT '종합 점수',
-  analysis_score DECIMAL(4, 1) COMMENT '치아 분석 점수',
-  survey_score DECIMAL(4, 1) COMMENT '설문 점수',
-  score_type ENUM('manual', 'auto', 'initial') DEFAULT 'auto' COMMENT '계산 유형',
+  total_score DECIMAL(5, 2) NOT NULL COMMENT '총점',
+  oral_care_score DECIMAL(5, 2) COMMENT '구강관리/양치습관',
+  cavity_dryness_score DECIMAL(5, 2) COMMENT '구치/구강건조',
+  smoking_drinking_score DECIMAL(5, 2) COMMENT '흡연/음주',
+  cariogenic_food_score DECIMAL(5, 2) COMMENT '우식성 식품 섭취',
+  sensitivity_fluoride_score DECIMAL(5, 2) COMMENT '지각과민/불소',
+  oral_habits_score DECIMAL(5, 2) COMMENT '구강악습관',
+  score_type ENUM('survey', 'manual', 'initial') DEFAULT 'survey' COMMENT '점수 유형',
+  survey_session_id VARCHAR(50) COMMENT '설문 세션 ID',
   calculation_details JSON COMMENT '계산 상세 정보',
-  calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   INDEX idx_user_id (user_id),
-  INDEX idx_calculated_at (calculated_at)
+  INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='점수 이력';
 

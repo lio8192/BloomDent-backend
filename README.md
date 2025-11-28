@@ -34,11 +34,25 @@
 - 비동기 백그라운드 처리
 - 분석 결과 및 추천 사항 제공
 
-### 📊 종합 건강 점수
-- 사용자별 종합 점수 관리
-- 치아 분석 + 설문 결과 기반 계산
+### 📋 동적 설문 시스템
+- 응답에 따라 다음 문항 자동 라우팅
+- 실시간 진행률 계산
+- 설문 응답 이력 저장
+- 표준화 점수 방식으로 카테고리별 점수 자동 계산
+  - 공식: (획득 점수 / 최대 점수) × 100
+  - 응답 경로가 달라도 공정하게 비교 가능
+
+### 📊 카테고리별 건강 점수
+- 6개 카테고리별 점수 관리
+  - 구강관리/양치습관
+  - 구치/구강건조
+  - 흡연/음주
+  - 우식성 식품 섭취
+  - 지각과민/불소
+  - 구강악습관
+- 설문 결과 기반 자동 점수 계산
+- 점수 CRUD (생성, 조회, 수정, 삭제)
 - 점수 이력 추적
-- 통계 및 대시보드 데이터
 - 리더보드 (순위)
 
 ---
@@ -139,18 +153,25 @@ npm start
 - `GET /api/images/user/:userId` - 사용자 이미지 목록
 - `DELETE /api/images/:id` - 이미지 삭제
 
-### 종합 점수
-- `GET /api/scores/user/:userId` - 사용자 종합 점수 조회
-- `POST /api/scores/calculate/:userId` - 종합 점수 계산/업데이트
+### 동적 설문
+- `GET /api/survey/start` - 설문 시작 (1번 문항 조회)
+- `POST /api/survey/answer` - 설문 응답 제출 및 다음 문항 조회
+- `POST /api/survey/calculate` - 설문 결과로 점수 계산
+- `GET /api/survey/responses/:userId` - 사용자 설문 응답 이력 조회
+
+### 카테고리별 점수
+- `GET /api/scores/user/:userId` - 사용자 점수 조회
+- `POST /api/scores/user/:userId` - 점수 입력/수정
+- `DELETE /api/scores/user/:userId` - 점수 삭제 (초기화)
 - `GET /api/scores/user/:userId/history` - 점수 이력 조회
-- `GET /api/scores/user/:userId/statistics` - 점수 통계 조회
 - `GET /api/scores/leaderboard` - 리더보드 조회
+- `GET /api/scores/categories` - 카테고리 목록 조회
 
 **📚 상세한 API 문서:**
 - [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) - 전체 API 명세
 - [API_USER_GUIDE.md](./API_USER_GUIDE.md) - 사용자 계정 API 가이드
 - [API_IMAGE_ANALYSIS.md](./API_IMAGE_ANALYSIS.md) - 사진 분석 API 가이드
-- [API_SCORES.md](./API_SCORES.md) - 종합 점수 API 가이드
+- [API_SURVEY_SCORES.md](./API_SURVEY_SCORES.md) - 동적 설문 & 점수 API 가이드
 
 ---
 
@@ -193,7 +214,10 @@ BloomDent-backend/
 - **appointment_surveys** - 예약별 설문 응답
 - **dental_images** - 치아 사진 (Cloudinary)
 - **image_analysis** - 사진 분석 결과
-- **user_health_scores** - 사용자 종합 건강 점수
+- **survey_questions_master** - 설문 문항
+- **survey_question_options** - 설문 응답 옵션
+- **user_survey_responses** - 사용자 설문 응답
+- **user_health_scores** - 사용자 카테고리별 건강 점수
 - **score_history** - 점수 변화 이력
 
 ---
