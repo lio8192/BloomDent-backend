@@ -33,6 +33,31 @@ jobs:
           echo "📦 npm 패키지 설치 중..."
           npm install
           echo "✅ 의존성 설치 완료"
+
+      - name: 🔐 .env 파일 생성
+        run: |
+          echo "Creating .env file with environment variables..."
+          cat > .env << EOF
+          # Server Configuration
+          PORT=${{ secrets.PORT }}
+          NODE_ENV=${{ secrets.NODE_ENV }}
+          
+          # MariaDB Configuration
+          DB_HOST=${{ secrets.DB_HOST }}
+          DB_PORT=${{ secrets.DB_PORT }}
+          DB_USER=${{ secrets.DB_USER }}
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          DB_NAME=${{ secrets.DB_NAME }}
+          
+          # AI Server Configuration
+          AI_SERVER_URL=${{ secrets.AI_SERVER_URL }}
+          
+          # Cloudinary Configuration
+          CLOUDINARY_CLOUD_NAME=${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY=${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET=${{ secrets.CLOUDINARY_API_SECRET }}
+          EOF
+          echo "✅ .env 파일이 생성되었습니다."
       
       - name: 🔍 환경 변수 파일 확인
         run: |
