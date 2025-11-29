@@ -12,7 +12,7 @@ router.get('/start', async (req, res) => {
         question_number,
         question_text,
         max_score
-       FROM survey_questions_master 
+       FROM survey_questions 
        WHERE question_number = 1 AND is_active = TRUE`
     );
 
@@ -38,7 +38,7 @@ router.get('/start', async (req, res) => {
 
     // 전체 설문 수 조회
     const [totalCount] = await pool.query(
-      'SELECT COUNT(*) as total FROM survey_questions_master WHERE is_active = TRUE'
+      'SELECT COUNT(*) as total FROM survey_questions WHERE is_active = TRUE'
     );
 
     // 새 설문 세션 ID 생성
@@ -132,7 +132,7 @@ router.post('/answer', async (req, res) => {
 
     // 전체 설문 수 조회
     const [totalCount] = await connection.query(
-      'SELECT COUNT(*) as total FROM survey_questions_master WHERE is_active = TRUE'
+      'SELECT COUNT(*) as total FROM survey_questions WHERE is_active = TRUE'
     );
 
     // 현재까지 답변한 수 조회
@@ -174,7 +174,7 @@ router.post('/answer', async (req, res) => {
         question_number,
         question_text,
         max_score
-       FROM survey_questions_master 
+       FROM survey_questions 
        WHERE question_number = ? AND is_active = TRUE`,
       [option.next_question_number]
     );
@@ -255,9 +255,9 @@ router.post('/calculate', async (req, res) => {
       `SELECT 
         usr.category,
         usr.score as earned_score,
-        sqm.max_score
+        sq.max_score
        FROM user_survey_responses usr
-       JOIN survey_questions_master sqm ON usr.question_number = sqm.question_number
+       JOIN survey_questions sq ON usr.question_number = sq.question_number
        WHERE usr.user_id = ? AND usr.survey_session_id = ?`,
       [user_id, session_id]
     );
@@ -441,7 +441,7 @@ router.get('/responses/:userId', async (req, res) => {
         usr.category,
         usr.answered_at
       FROM user_survey_responses usr
-      JOIN survey_questions_master sqm ON usr.question_number = sqm.question_number
+      JOIN survey_questions sq ON usr.question_number = sq.question_number
       JOIN survey_question_options sqo ON usr.question_number = sqo.question_number 
         AND usr.option_number = sqo.option_number
       WHERE usr.user_id = ?
@@ -480,7 +480,7 @@ router.get('/questions/:questionNumber', async (req, res) => {
     const { questionNumber } = req.params;
 
     const [questions] = await pool.query(
-      `SELECT * FROM survey_questions_master WHERE question_number = ?`,
+      `SELECT * FROM survey_questions WHERE question_number = ?`,
       [questionNumber]
     );
 

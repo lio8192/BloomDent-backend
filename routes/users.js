@@ -133,13 +133,8 @@ router.post('/register', async (req, res) => {
 
     const userId = result.insertId;
 
-    // 설문 답변이 있으면 self_check 테이블에 저장
-    if (surveyAnswers) {
-      await connection.query(
-        'INSERT INTO self_check (user_id, answers) VALUES (?, ?)',
-        [userId, JSON.stringify(surveyAnswers)]
-      );
-    }
+    // 설문 답변이 있으면 추후 설문 시스템과 연동 가능
+    // (현재는 별도의 설문 시스템(/api/survey)을 통해 관리)
 
     await connection.commit();
 
