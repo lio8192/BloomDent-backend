@@ -38,7 +38,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
   let tempFilePath = null;
   
   try {
-    const { user_id, image_type } = req.body;
+    const { user_id, image_type, position } = req.body;
 
     // 파일 확인
     if (!req.file) {
@@ -48,7 +48,12 @@ router.post('/upload', upload.single('image'), async (req, res) => {
       });
     }
 
+    // position 값 검증
+    const validPositions = ['upper', 'lower', 'front'];
+    const validatedPosition = position && validPositions.includes(position) ? position : null;
+    
     console.log('📤 이미지 업로드 시작:', req.file.originalname);
+    console.log('📋 업로드 파라미터:', { user_id, image_type, position, validatedPosition });
 
     // 1. 임시 파일 저장
     tempFilePath = saveTempFile(req.file.buffer, req.file.originalname);
@@ -76,13 +81,14 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     // 3. DB에 이미지 정보 저장
     const [imageResult] = await pool.query(
       `INSERT INTO dental_images 
-       (user_id, cloudinary_id, cloudinary_url, original_filename, image_type, analysis_status) 
-       VALUES (?, ?, ?, ?, ?, 'pending')`,
+       (user_id, cloudinary_id, cloudinary_url, original_filename, position, image_type, analysis_status) 
+       VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
       [
         user_id || null,
         cloudinaryResult.cloudinary_id,
         cloudinaryResult.cloudinary_url,
         req.file.originalname,
+        validatedPosition,
         image_type || 'other'
       ]
     );
@@ -204,7 +210,7 @@ router.get('/:id/status', async (req, res) => {
 
     const [images] = await pool.query(
       `SELECT 
-        id, cloudinary_url, image_type, analysis_status, uploaded_at
+        id, cloudinary_url, image_type, position, analysis_status, uploaded_at
        FROM dental_images 
        WHERE id = ?`,
       [id]
@@ -243,6 +249,7 @@ router.get('/:id/analysis', async (req, res) => {
         di.id,
         di.cloudinary_url,
         di.image_type,
+        di.position,
         di.analysis_status,
         di.uploaded_at,
         ia.occlusion_status,
@@ -293,6 +300,7 @@ router.get('/:id/analysis', async (req, res) => {
         image_id: result.id,
         cloudinary_url: result.cloudinary_url,
         image_type: result.image_type,
+        position: result.position,
         uploaded_at: result.uploaded_at,
         analysis: {
           occlusion: {
@@ -333,6 +341,7 @@ router.get('/user/:userId', async (req, res) => {
         di.id,
         di.cloudinary_url,
         di.image_type,
+        di.position,
         di.analysis_status,
         di.uploaded_at,
         ia.overall_score,
