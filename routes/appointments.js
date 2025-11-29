@@ -144,13 +144,13 @@ router.get('/:id', async (req, res) => {
       `SELECT 
         aps.id,
         aps.question_id,
-        sq.question,
-        sq.question_type,
+        rsq.question,
+        rsq.question_type,
         aps.answer
        FROM appointment_surveys aps
-       JOIN survey_questions sq ON aps.question_id = sq.id
+       JOIN reservation_survey_questions rsq ON aps.question_id = rsq.id
        WHERE aps.appointment_id = ?
-       ORDER BY sq.order_num`,
+       ORDER BY rsq.order_num`,
       [id]
     );
 
@@ -291,7 +291,7 @@ router.put('/:id/cancel', async (req, res) => {
 router.get('/surveys/questions', async (req, res) => {
   try {
     const [questions] = await pool.query(
-      'SELECT * FROM survey_questions WHERE is_active = TRUE ORDER BY order_num'
+      'SELECT * FROM reservation_survey_questions WHERE is_active = TRUE ORDER BY order_num'
     );
 
     res.json({

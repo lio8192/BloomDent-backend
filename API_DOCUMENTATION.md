@@ -43,12 +43,18 @@
       "address": "서울특별시 강남구 테헤란로 123",
       "phone": "02-1234-5678",
       "description": "첨단 장비를 갖춘 종합 치과입니다.",
+      "is_partner": 1,
       "created_at": "2025-11-10T12:00:00.000Z",
       "updated_at": "2025-11-10T12:00:00.000Z"
     }
   ]
 }
 ```
+
+**참고사항**:
+- `is_partner`: 협약 병원 여부 (1: 협약 병원, 0: 비협약 병원)
+  - 협약 병원(`is_partner: 1`): 앱을 통한 온라인 예약 가능
+  - 비협약 병원(`is_partner: 0`): 전화 예약만 가능
 
 ---
 
@@ -61,10 +67,11 @@
 | latitude | number | ✅ | 현재 위치의 위도 | - |
 | longitude | number | ✅ | 현재 위치의 경도 | - |
 | radius | number | ❌ | 검색 반경 (km) | 5 |
+| limit | number | ❌ | 최대 결과 개수 | 100 |
 
 **요청 예시**:
 ```
-GET /api/clinics/nearby?latitude=37.5012767&longitude=127.0396597&radius=5
+GET /api/clinics/nearby?latitude=37.5012767&longitude=127.0396597&radius=5&limit=50
 ```
 
 **응답 예시**:
@@ -86,11 +93,17 @@ GET /api/clinics/nearby?latitude=37.5012767&longitude=127.0396597&radius=5
       "address": "서울특별시 강남구 테헤란로 123",
       "phone": "02-1234-5678",
       "description": "첨단 장비를 갖춘 종합 치과입니다.",
+      "is_partner": 1,
       "distance": 0.12
     }
   ]
 }
 ```
+
+**참고사항**:
+- MySQL의 `ST_Distance_Sphere` 함수를 사용하여 DB 레벨에서 거리 계산 (고성능)
+- 거리는 km 단위로 반올림되어 소수점 2자리까지 표시됩니다
+- 결과는 거리순으로 정렬되어 반환됩니다
 
 ---
 
@@ -143,10 +156,14 @@ GET /api/clinics/1
     "longitude": "127.03965970",
     "address": "서울특별시 강남구 테헤란로 123",
     "phone": "02-1234-5678",
-    "description": "첨단 장비를 갖춘 종합 치과입니다."
+    "description": "첨단 장비를 갖춘 종합 치과입니다.",
+    "is_partner": 1
   }
 }
 ```
+
+**참고사항**:
+- `is_partner`: 협약 병원 여부 (1: 협약 병원, 0: 비협약 병원)
 
 ---
 
@@ -268,6 +285,7 @@ GET /api/clinics/1/available-slots?date=2025-11-11
 **Request Body**:
 ```json
 {
+  "user_id": 1,
   "clinic_id": 1,
   "slot_id": 3,
   "patient_name": "홍길동",
@@ -298,6 +316,18 @@ GET /api/clinics/1/available-slots?date=2025-11-11
 - `patient_name`: 예약자 이름
 - `patient_phone`: 예약자 전화번호
 
+**선택 필드**:
+- `user_id`: 로그인한 사용자 ID (선택 사항, 로그인하지 않은 사용자도 예약 가능)
+- `patient_email`: 예약자 이메일
+- `patient_birth_date`: 생년월일 (YYYY-MM-DD)
+- `symptoms`: 증상 설명
+- `survey_answers`: 사전 자가진단 설문 응답 배열
+
+**주의사항**:
+- **협약 병원(`is_partner: 1`)만 온라인 예약이 가능합니다**
+- 비협약 병원(`is_partner: 0`)은 전화 예약만 가능합니다
+- 예약 생성 시 해당 시간 슬롯이 자동으로 예약 불가능 상태로 변경됩니다
+
 **응답 예시**:
 ```json
 {
@@ -305,6 +335,7 @@ GET /api/clinics/1/available-slots?date=2025-11-11
   "message": "예약이 성공적으로 생성되었습니다.",
   "data": {
     "id": 3,
+    "user_id": 1,
     "clinic_id": 1,
     "slot_id": 3,
     "patient_name": "홍길동",
@@ -320,6 +351,14 @@ GET /api/clinics/1/available-slots?date=2025-11-11
     "appointment_time": "11:00:00",
     "created_at": "2025-11-10T15:30:00.000Z"
   }
+}
+```
+
+**에러 응답 (400)**:
+```json
+{
+  "success": false,
+  "message": "해당 시간은 이미 예약되었거나 존재하지 않습니다."
 }
 ```
 
@@ -344,6 +383,7 @@ GET /api/appointments/1
   "success": true,
   "data": {
     "id": 1,
+    "user_id": 1,
     "clinic_id": 1,
     "slot_id": 1,
     "patient_name": "김철수",
@@ -403,15 +443,22 @@ GET /api/appointments/patient/010-1111-2222?status=confirmed
   "data": [
     {
       "id": 1,
+      "user_id": 1,
       "clinic_id": 1,
+      "slot_id": 1,
       "patient_name": "김철수",
       "patient_phone": "010-1111-2222",
+      "patient_email": "kim@example.com",
+      "patient_birth_date": "1990-05-15",
+      "symptoms": "치아 통증이 있습니다.",
       "status": "confirmed",
       "clinic_name": "서울밝은치과",
       "clinic_address": "서울특별시 강남구 테헤란로 123",
       "clinic_phone": "02-1234-5678",
       "appointment_date": "2025-11-11",
-      "appointment_time": "09:00:00"
+      "appointment_time": "09:00:00",
+      "created_at": "2025-11-10T12:00:00.000Z",
+      "updated_at": "2025-11-10T12:00:00.000Z"
     }
   ]
 }
@@ -443,6 +490,10 @@ PUT /api/appointments/1/cancel
   }
 }
 ```
+
+**참고사항**:
+- 예약 취소 시 해당 시간 슬롯이 자동으로 다시 예약 가능 상태로 변경됩니다
+- 이미 취소된 예약을 다시 취소하려고 하면 에러가 발생합니다
 
 ---
 
