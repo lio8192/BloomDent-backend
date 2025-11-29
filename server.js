@@ -23,6 +23,7 @@ const usersRoutes = require('./routes/users');
 const imagesRoutes = require('./routes/images');
 const surveyRoutes = require('./routes/survey');
 const scoresRoutes = require('./routes/scores');
+const aiRoutes = require('./routes/ai');
 
 app.use('/api', apiRoutes);
 app.use('/api/clinics', clinicsRoutes);
@@ -31,7 +32,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/images', imagesRoutes);
 app.use('/api/survey', surveyRoutes);
 app.use('/api/scores', scoresRoutes);
-
+app.use('/api/ai', aiRoutes);
 // 루트 경로
 app.get('/', (req, res) => {
   res.json({
