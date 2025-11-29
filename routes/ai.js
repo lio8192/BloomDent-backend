@@ -205,10 +205,7 @@ ${JSON.stringify(responses, null, 2)}
   }
 });
 
-// -----------------------------------------------------
-// 2) 구강 용품 추천 API
-// POST /api/ai/recommendations
-// -----------------------------------------------------
+
 // -------------------------------------------
 // 2) 구강 용품 추천 API
 // POST /api/ai/recommendations
@@ -248,19 +245,21 @@ router.post('/recommendations', async (req, res) => {
 아래 설문 결과를 참고하여 사용자의 구강 상태에 맞는 구강 용품 3~5개를 추천하세요.
 
 각 제품은:
-- 이름
-- 구매 링크(쿠팡 또는 네이버)
-- 추천 이유(한국어)
+- 이름(name)
+- 구매 링크(쿠팡 또는 네이버)(link)
+- 추천 이유(한국어)(reason)
 
 응답 데이터(JSON):
 ${JSON.stringify(responses, null, 2)}
 
-반드시 유효한 JSON만 출력하세요.
-출력형식:
+반드시 **유효한 JSON 배열만** 출력하세요.
+어떠한 설명 문장이나 마크다운, 코드블록( \`\`\` )도 넣지 마세요.
+
+출력 형식(JSON only):
 [
   {
     "name": "제품명",
-    "link": "https://...",
+    "link": "https://example.com",
     "reason": "추천 이유"
   }
 ]
@@ -269,17 +268,32 @@ ${JSON.stringify(responses, null, 2)}
     const result = await ai.models.generateContent({
       model: 'gemini-2.0-flash',
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      // ✅ JSON만 받도록 강하게 지정
+      generationConfig: {
+        responseMimeType: 'application/json',
+      },
     });
 
-    // 간단 파싱 (이미 위에서 JSON만 달라고 했으니 그대로 시도)
+    // 🔍 응답 텍스트 확인용 로그
+    let rawText = (result && result.text) ? result.text : '';
+    console.log('🔍 raw recommendations text:', rawText);
+
+    // 혹시 모를 코드블록/공백 제거
+    let cleaned = rawText.trim();
+    if (cleaned.startsWith('```')) {
+      // ```json ... ``` 또는 ``` ... ``` 형태 제거
+      cleaned = cleaned.replace(/^```[a-zA-Z0-9]*\s*/, '').replace(/```$/, '').trim();
+    }
+
     let recommendations;
     try {
-      recommendations = JSON.parse(result.text);
+      recommendations = JSON.parse(cleaned);
     } catch (e) {
-      console.error('recommendations JSON parse error:', e, result.text);
+      console.error('recommendations JSON parse error:', e, cleaned);
       throw new Error('AI 응답을 JSON으로 해석하는 중 오류가 발생했습니다.');
     }
 
+    // DB 저장
     await pool.query(
       `
       INSERT INTO detail_survey (user_id, survey_session_id, recommendations_json)
