@@ -209,6 +209,10 @@ ${JSON.stringify(responses, null, 2)}
 // 2) 구강 용품 추천 API
 // POST /api/ai/recommendations
 // -----------------------------------------------------
+// -------------------------------------------
+// 2) 구강 용품 추천 API
+// POST /api/ai/recommendations
+// -------------------------------------------
 router.post('/recommendations', async (req, res) => {
   const { user_id, survey_session_id } = req.body;
 
@@ -220,24 +224,24 @@ router.post('/recommendations', async (req, res) => {
   }
 
   try {
-    // 설문 응답 불러오기
+    // ✅ 설문 응답 + option_text 조인해서 조회
     const [responses] = await pool.query(
       `
       SELECT 
-        question_number, option_text, category, score
-      FROM user_survey_responses
-      WHERE user_id = ? AND survey_session_id = ?
-      ORDER BY question_number ASC
+        usr.question_number,
+        usr.option_number,
+        sqo.option_text,
+        usr.category,
+        usr.score
+      FROM user_survey_responses usr
+      JOIN survey_question_options sqo
+        ON usr.question_number = sqo.question_number
+       AND usr.option_number   = sqo.option_number
+      WHERE usr.user_id = ? AND usr.survey_session_id = ?
+      ORDER BY usr.question_number ASC
       `,
       [user_id, survey_session_id]
     );
-
-    if (responses.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: '해당 세션의 설문 응답이 없습니다.',
-      });
-    }
 
     const prompt = `
 당신은 치과 전문 판매 AI입니다.
@@ -248,17 +252,16 @@ router.post('/recommendations', async (req, res) => {
 - 구매 링크(쿠팡 또는 네이버)
 - 추천 이유(한국어)
 
-응답 데이터:
+응답 데이터(JSON):
 ${JSON.stringify(responses, null, 2)}
 
-반드시 아래 형식의 JSON 배열만 출력하세요.
-마크다운 코드블록(\`\`\`)이나 여분의 설명 없이, 순수 JSON만 응답하세요.
-
+반드시 유효한 JSON만 출력하세요.
+출력형식:
 [
   {
-    "name": "",
-    "link": "",
-    "reason": ""
+    "name": "제품명",
+    "link": "https://...",
+    "reason": "추천 이유"
   }
 ]
     `;
@@ -268,13 +271,15 @@ ${JSON.stringify(responses, null, 2)}
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
     });
 
-    const text = result.text || '';
-    const recommendations = parseGeminiJsonOrThrow(
-      text,
-      'recommendations'
-    );
+    // 간단 파싱 (이미 위에서 JSON만 달라고 했으니 그대로 시도)
+    let recommendations;
+    try {
+      recommendations = JSON.parse(result.text);
+    } catch (e) {
+      console.error('recommendations JSON parse error:', e, result.text);
+      throw new Error('AI 응답을 JSON으로 해석하는 중 오류가 발생했습니다.');
+    }
 
-    // DB 저장
     await pool.query(
       `
       INSERT INTO detail_survey (user_id, survey_session_id, recommendations_json)
@@ -294,7 +299,7 @@ ${JSON.stringify(responses, null, 2)}
     return res.status(500).json({
       success: false,
       message: '구강 용품 추천 생성 중 오류 발생',
-      error: IS_DEV ? error.message : undefined,
+      error: error.message,
     });
   }
 });
