@@ -158,4 +158,79 @@ router.get('/session/:sessionId', async (req, res) => {
   }
 });
 
+// GET /api/survey-detail/detail/:surveySessionId
+router.get('/detail/:surveySessionId', async (req, res) => {
+  const { surveySessionId } = req.params;
+
+  try {
+    const [rows] = await pool.query(
+      `
+      SELECT 
+        id,
+        user_id,
+        survey_session_id,
+        analysis_json,
+        recommendations_json,
+        model_name,
+        created_at,
+        updated_at
+      FROM detail_survey
+      WHERE survey_session_id = ?
+      `,
+      [surveySessionId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: '해당 세션의 상세 설문 분석 결과를 찾을 수 없습니다.',
+      });
+    }
+
+    const row = rows[0];
+
+    // JSON 필드 파싱
+    let analysis = null;
+    let recommendations = [];
+
+    try {
+      if (row.analysis_json) {
+        analysis = JSON.parse(row.analysis_json);
+      }
+    } catch (e) {
+      console.error('analysis_json parse error:', e);
+    }
+
+    try {
+      if (row.recommendations_json) {
+        recommendations = JSON.parse(row.recommendations_json);
+      }
+    } catch (e) {
+      console.error('recommendations_json parse error:', e);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        id: row.id,
+        user_id: row.user_id,
+        survey_session_id: row.survey_session_id,
+        model_name: row.model_name,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        analysis,          // { summary, details, risk_factors, improvements }
+        recommendations,   // [{ name, link, reason }, ...]
+      },
+    });
+  } catch (error) {
+    console.error('GET /survey-detail/detail error:', error);
+    return res.status(500).json({
+      success: false,
+      message: '상세 설문 결과를 불러오는 중 오류가 발생했습니다.',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+});
+
+module.exports = router;
 module.exports = router;
