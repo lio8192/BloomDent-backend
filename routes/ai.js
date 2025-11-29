@@ -2,6 +2,7 @@
 const express = require('express');
 const { ai } = require('../utils/geminiClient');
 const { generateOralCareTip } = require('../services/oralTipsService');
+const { pool } = require('../config/database');
 
 const router = express.Router();
 
