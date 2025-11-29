@@ -2,24 +2,10 @@ const express = require('express');
 const router = express.Router();
 const { pool } = require('../config/database');
 
-// Haversine 공식을 사용하여 두 지점 간의 거리 계산 (km)
-function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371; // 지구 반지름 (km)
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distance = R * c;
-  return distance;
-}
-
-// 주변 치과 검색 (위치 기반)
+// 주변 치과 검색 (위치 기반) - MySQL 공간 함수 사용
 router.get('/nearby', async (req, res) => {
   try {
-    const { latitude, longitude, radius = 5 } = req.query;
+    const { latitude, longitude, radius = 5, limit = 100 } = req.query;
 
     // 필수 파라미터 검증
     if (!latitude || !longitude) {
@@ -32,30 +18,51 @@ router.get('/nearby', async (req, res) => {
     const lat = parseFloat(latitude);
     const lon = parseFloat(longitude);
     const searchRadius = parseFloat(radius);
+    const searchLimit = parseInt(limit);
 
-    // 모든 치과 정보 조회
-    const [clinics] = await pool.query(
-      'SELECT * FROM dental_clinics ORDER BY created_at DESC'
-    );
+    // 바운딩 박스 계산 (1도 ≈ 111km)
+    // 먼저 대략적인 범위로 후보를 줄임 (성능 최적화)
+    const latDelta = searchRadius / 111.0; // 위도 1도 ≈ 111km
+    const lonDelta = searchRadius / (111.0 * Math.cos(lat * Math.PI / 180)); // 경도는 위도에 따라 달라짐
 
-    // 거리 계산 및 필터링
-    const nearbyClinic = clinics
-      .map(clinic => ({
-        ...clinic,
-        distance: calculateDistance(lat, lon, parseFloat(clinic.latitude), parseFloat(clinic.longitude))
-      }))
-      .filter(clinic => clinic.distance <= searchRadius)
-      .sort((a, b) => a.distance - b.distance);
+    // MySQL의 ST_Distance_Sphere 함수를 사용하여 DB에서 직접 거리 계산
+    // POINT(경도, 위도) 순서임에 주의!
+    const query = `
+      SELECT 
+        *,
+        ROUND(
+          ST_Distance_Sphere(
+            POINT(longitude, latitude),
+            POINT(?, ?)
+          ) / 1000,
+          2
+        ) AS distance
+      FROM dental_clinics
+      WHERE 
+        latitude BETWEEN ? AND ?
+        AND longitude BETWEEN ? AND ?
+      HAVING distance <= ?
+      ORDER BY distance ASC
+      LIMIT ?
+    `;
+
+    const [clinics] = await pool.query(query, [
+      lon, lat,                              // 검색 중심점 (경도, 위도)
+      lat - latDelta, lat + latDelta,        // 위도 범위
+      lon - lonDelta, lon + lonDelta,        // 경도 범위
+      searchRadius,                           // 거리 필터 (km)
+      searchLimit                            // 결과 개수 제한
+    ]);
 
     res.json({
       success: true,
-      count: nearbyClinic.length,
+      count: clinics.length,
       searchLocation: {
         latitude: lat,
         longitude: lon,
         radius: searchRadius
       },
-      data: nearbyClinic
+      data: clinics
     });
 
   } catch (error) {
@@ -140,12 +147,18 @@ router.get('/:id/available-dates', async (req, res) => {
     const { id } = req.params;
     const { from_date, to_date } = req.query;
 
-    // 기본값: 오늘부터 30일간
-    const fromDate = from_date || new Date().toISOString().split('T')[0];
-    const toDate = to_date || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    // 기본값: 오늘부터 30일간 (KST 기준)
+    const getKSTDate = (date) => {
+      const kstDate = new Date(date.toLocaleString("en-US", {timeZone: "Asia/Seoul"}));
+      return kstDate.toISOString().split('T')[0];
+    };
+    
+    const today = new Date();
+    const fromDate = from_date || getKSTDate(today);
+    const toDate = to_date || getKSTDate(new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000));
 
     const [dates] = await pool.query(
-      `SELECT DISTINCT date 
+      `SELECT DISTINCT DATE_FORMAT(date, '%Y-%m-%d') as date 
        FROM appointment_slots 
        WHERE clinic_id = ? 
          AND date BETWEEN ? AND ? 
