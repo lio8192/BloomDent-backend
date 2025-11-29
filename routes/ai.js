@@ -5,14 +5,62 @@ const { generateOralCareTip } = require('../services/oralTipsService');
 const { pool } = require('../config/database');
 
 const router = express.Router();
+const IS_DEV = process.env.NODE_ENV === 'development';
 
+/**
+ * Gemini가 ```json ... ``` 같이 돌려줘도
+ * 순수 JSON 문자열만 뽑아내는 유틸 함수
+ */
+function extractJsonFromText(text) {
+  if (!text) return '';
+
+  let s = text.trim();
+
+  // ``` 또는 ```json 으로 시작하는 경우 코드블록 제거
+  if (s.startsWith('```')) {
+    // 첫 줄( ``` 또는 ```json ) 제거
+    const firstNewline = s.indexOf('\n');
+    if (firstNewline !== -1) {
+      s = s.substring(firstNewline + 1);
+    }
+
+    // 마지막 ``` 제거
+    const lastFence = s.lastIndexOf('```');
+    if (lastFence !== -1) {
+      s = s.substring(0, lastFence);
+    }
+  }
+
+  return s.trim();
+}
+
+/**
+ * 공통: Gemini 응답을 JSON으로 파싱
+ */
+function parseGeminiJsonOrThrow(text, contextLabel = 'Gemini JSON') {
+  const cleaned = extractJsonFromText(text);
+  console.log(`🔍 ${contextLabel} rawText:`, text);
+  console.log(`🔍 ${contextLabel} cleaned:`, cleaned);
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    console.error(`❌ ${contextLabel} JSON 파싱 실패:`, e);
+    throw new Error(
+      `${contextLabel} 파싱 중 오류가 발생했습니다: ${e.message}`
+    );
+  }
+}
+
+// -----------------------------------------------------
 // GET /api/ai/test
+// -----------------------------------------------------
 router.get('/test', async (req, res) => {
   try {
-    const prompt = '제미나이 GenAI SDK 테스트입니다. 공손한 한국어로 한 줄 인사해 주세요.';
+    const prompt =
+      '제미나이 GenAI SDK 테스트입니다. 공손한 한국어로 한 줄 인사해 주세요.';
 
     const result = await ai.models.generateContent({
-      // 빠르고 저렴한 버전: gemini-2.0-flash
       model: 'gemini-2.0-flash',
       contents: [
         {
@@ -22,7 +70,6 @@ router.get('/test', async (req, res) => {
       ],
     });
 
-    // 새 SDK는 result.text 형태로 바로 텍스트를 줍니다.
     const text = result.text;
 
     return res.json({
@@ -38,8 +85,10 @@ router.get('/test', async (req, res) => {
   }
 });
 
-// 오늘의 구강 관리 Tip 라우트
+// -----------------------------------------------------
+// 오늘의 구강 관리 Tip
 // GET /api/ai/today-tip
+// -----------------------------------------------------
 router.get('/today-tip', async (req, res) => {
   try {
     const tip = await generateOralCareTip();
@@ -53,15 +102,15 @@ router.get('/today-tip', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: '오늘의 Tip을 생성하는 중 오류가 발생했습니다.',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      error: IS_DEV ? error.message : undefined,
     });
   }
 });
 
-// -------------------------------------------
+// -----------------------------------------------------
 // 1) 설문 결과 분석 API
 // POST /api/ai/survey-analysis
-// -------------------------------------------
+// -----------------------------------------------------
 router.post('/survey-analysis', async (req, res) => {
   const { user_id, survey_session_id } = req.body;
 
@@ -112,7 +161,9 @@ router.post('/survey-analysis', async (req, res) => {
 응답 데이터(JSON):
 ${JSON.stringify(responses, null, 2)}
 
-출력 형식(JSON):
+반드시 아래 JSON 형식만 출력하세요.
+마크다운 코드블록(\`\`\`)이나 설명 문장 없이, 순수 JSON 객체만 응답하세요.
+
 {
   "summary": "총평",
   "details": "세부 분석 결과",
@@ -126,7 +177,8 @@ ${JSON.stringify(responses, null, 2)}
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
     });
 
-    const analysis = JSON.parse(result.text);
+    const text = result.text || '';
+    const analysis = parseGeminiJsonOrThrow(text, 'survey-analysis');
 
     // 3) DB 저장
     await pool.query(
@@ -148,16 +200,15 @@ ${JSON.stringify(responses, null, 2)}
     return res.status(500).json({
       success: false,
       message: '설문 분석 중 오류 발생',
-      error: error.message,
+      error: IS_DEV ? error.message : undefined,
     });
   }
 });
 
-
-// -------------------------------------------
+// -----------------------------------------------------
 // 2) 구강 용품 추천 API
 // POST /api/ai/recommendations
-// -------------------------------------------
+// -----------------------------------------------------
 router.post('/recommendations', async (req, res) => {
   const { user_id, survey_session_id } = req.body;
 
@@ -181,6 +232,13 @@ router.post('/recommendations', async (req, res) => {
       [user_id, survey_session_id]
     );
 
+    if (responses.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: '해당 세션의 설문 응답이 없습니다.',
+      });
+    }
+
     const prompt = `
 당신은 치과 전문 판매 AI입니다.
 아래 설문 결과를 참고하여 사용자의 구강 상태에 맞는 구강 용품 3~5개를 추천하세요.
@@ -193,7 +251,9 @@ router.post('/recommendations', async (req, res) => {
 응답 데이터:
 ${JSON.stringify(responses, null, 2)}
 
-출력형식(JSON):
+반드시 아래 형식의 JSON 배열만 출력하세요.
+마크다운 코드블록(\`\`\`)이나 여분의 설명 없이, 순수 JSON만 응답하세요.
+
 [
   {
     "name": "",
@@ -208,7 +268,11 @@ ${JSON.stringify(responses, null, 2)}
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
     });
 
-    const recommendations = JSON.parse(result.text);
+    const text = result.text || '';
+    const recommendations = parseGeminiJsonOrThrow(
+      text,
+      'recommendations'
+    );
 
     // DB 저장
     await pool.query(
@@ -230,7 +294,7 @@ ${JSON.stringify(responses, null, 2)}
     return res.status(500).json({
       success: false,
       message: '구강 용품 추천 생성 중 오류 발생',
-      error: error.message,
+      error: IS_DEV ? error.message : undefined,
     });
   }
 });
