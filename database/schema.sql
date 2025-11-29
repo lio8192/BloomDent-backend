@@ -17,14 +17,16 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS dental_clinics (
   id INT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(255) NOT NULL COMMENT '치과 이름',
-  latitude DECIMAL(10, 8) NOT NULL COMMENT '위도',
+  latitude DECIMAL(11, 8) NOT NULL COMMENT '위도',
   longitude DECIMAL(11, 8) NOT NULL COMMENT '경도',
   address VARCHAR(500) NOT NULL COMMENT '주소',
-  phone VARCHAR(20) NOT NULL COMMENT '전화번호',
+  phone VARCHAR(20) COMMENT '전화번호',
   description TEXT COMMENT '병원 소개',
+  is_partner BOOLEAN DEFAULT FALSE COMMENT '협약 병원 여부',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_location (latitude, longitude)
+  INDEX idx_location (latitude, longitude),
+  INDEX idx_is_partner (is_partner)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='치과 병원 정보';
 
 -- 3. 예약 가능 시간 슬롯 테이블
@@ -41,8 +43,8 @@ CREATE TABLE IF NOT EXISTS appointment_slots (
   INDEX idx_clinic_date (clinic_id, date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='예약 가능 시간';
 
--- 4. 사전 자가진단 설문 질문 테이블
-CREATE TABLE IF NOT EXISTS survey_questions (
+-- 4. 사전 예약 자가진단 설문 질문 테이블
+CREATE TABLE IF NOT EXISTS reservation_survey_questions (
   id INT PRIMARY KEY AUTO_INCREMENT,
   question TEXT NOT NULL COMMENT '질문 내용',
   question_type ENUM('yes_no', 'text', 'multiple_choice') DEFAULT 'yes_no' COMMENT '질문 유형',
@@ -82,7 +84,7 @@ CREATE TABLE IF NOT EXISTS appointment_surveys (
   answer TEXT NOT NULL COMMENT '답변 내용',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE,
-  FOREIGN KEY (question_id) REFERENCES survey_questions(id) ON DELETE CASCADE,
+  FOREIGN KEY (question_id) REFERENCES reservation_survey_questions(id) ON DELETE CASCADE,
   INDEX idx_appointment (appointment_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='예약별 설문 응답';
 
@@ -120,7 +122,7 @@ CREATE TABLE IF NOT EXISTS image_analysis (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='사진 분석 결과';
 
 -- 9. 설문 문항 테이블
-CREATE TABLE IF NOT EXISTS survey_questions_master (
+CREATE TABLE IF NOT EXISTS survey_questions (
   id INT PRIMARY KEY AUTO_INCREMENT,
   question_number INT NOT NULL UNIQUE COMMENT '문항번호',
   question_text TEXT NOT NULL COMMENT '문항내용',
@@ -140,7 +142,7 @@ CREATE TABLE IF NOT EXISTS survey_question_options (
   score DECIMAL(5, 2) NOT NULL COMMENT '배점',
   category ENUM('구강관리/양치습관', '구치/구강건조', '흡연/음주', '우식성 식품 섭취', '지각과민/불소', '구강악습관') NOT NULL COMMENT '카테고리',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (question_number) REFERENCES survey_questions_master(question_number) ON DELETE CASCADE,
+  FOREIGN KEY (question_number) REFERENCES survey_questions(question_number) ON DELETE CASCADE,
   UNIQUE KEY unique_option (question_number, option_number),
   INDEX idx_question_number (question_number)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='설문 응답 옵션';
@@ -156,7 +158,7 @@ CREATE TABLE IF NOT EXISTS user_survey_responses (
   category VARCHAR(50) NOT NULL COMMENT '카테고리',
   answered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (question_number) REFERENCES survey_questions_master(question_number) ON DELETE CASCADE,
+  FOREIGN KEY (question_number) REFERENCES survey_questions(question_number) ON DELETE CASCADE,
   INDEX idx_user_id (user_id),
   INDEX idx_session (survey_session_id),
   INDEX idx_answered_at (answered_at)
@@ -202,16 +204,4 @@ CREATE TABLE IF NOT EXISTS score_history (
   INDEX idx_user_id (user_id),
   INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='점수 이력';
-
--- 11. 회원가입 설문 답변 테이블
-CREATE TABLE IF NOT EXISTS self_check (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  user_id INT NOT NULL,
-  answers JSON NOT NULL COMMENT '설문 답변 (JSON 형식)',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  UNIQUE KEY unique_user (user_id),
-  INDEX idx_user_id (user_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='회원가입 설문 답변';
 
