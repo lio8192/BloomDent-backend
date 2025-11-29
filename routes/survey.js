@@ -3,10 +3,23 @@ const router = express.Router();
 const { pool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 
-// 설문 시작 (1번 문항 조회)
+/**
+ * 카테고리 상수 (DB enum 기준)
+ */
+const CATEGORY = {
+  ORAL_CARE: '구강관리/양치습관',
+  BAD_BREATH: '구치/구강건조', // DB enum 기준
+  SMOKING: '흡연/음주',
+  CARIOGENIC_FOOD: '우식성 식품 섭취',
+  SENSITIVITY: '지각과민/불소',
+  ORAL_HABITS: '구강악습관',
+};
+
+/**
+ * 1. 설문 시작 (1번 문항 조회)
+ */
 router.get('/start', async (req, res) => {
   try {
-    // 1번 문항 조회
     const [questions] = await pool.query(
       `SELECT 
         question_number,
@@ -19,11 +32,10 @@ router.get('/start', async (req, res) => {
     if (questions.length === 0) {
       return res.status(404).json({
         success: false,
-        message: '설문을 찾을 수 없습니다.'
+        message: '설문을 찾을 수 없습니다.',
       });
     }
 
-    // 1번 문항의 응답 옵션 조회
     const [options] = await pool.query(
       `SELECT 
         option_number,
@@ -36,12 +48,10 @@ router.get('/start', async (req, res) => {
        ORDER BY option_number`
     );
 
-    // 전체 설문 수 조회
     const [totalCount] = await pool.query(
       'SELECT COUNT(*) as total FROM survey_questions WHERE is_active = TRUE'
     );
 
-    // 새 설문 세션 ID 생성
     const sessionId = uuidv4();
 
     res.json({
@@ -49,48 +59,43 @@ router.get('/start', async (req, res) => {
       data: {
         session_id: sessionId,
         current_question: questions[0],
-        options: options,
+        options,
         progress: {
           current: 1,
           total: totalCount[0].total,
-          remaining: totalCount[0].total - 1
-        }
-      }
+          remaining: totalCount[0].total - 1,
+        },
+      },
     });
-
   } catch (error) {
     console.error('설문 시작 오류:', error);
     res.status(500).json({
       success: false,
       message: '설문 시작 중 오류가 발생했습니다.',
-      error: error.message
+      error: error.message,
     });
   }
 });
 
-// 설문 응답 제출 및 다음 문항 조회
+/**
+ * 2. 설문 응답 제출 및 다음 문항 조회
+ * - user_survey_responses.score 에는 항상 리커트 원점수(1~5) 저장
+ */
 router.post('/answer', async (req, res) => {
   const connection = await pool.getConnection();
-  
-  try {
-    const {
-      user_id,
-      session_id,
-      question_number,
-      option_number
-    } = req.body;
 
-    // 필수 필드 검증
+  try {
+    const { user_id, session_id, question_number, option_number } = req.body;
+
     if (!user_id || !session_id || !question_number || !option_number) {
       return res.status(400).json({
         success: false,
-        message: '모든 필드는 필수입니다.'
+        message: '모든 필드는 필수입니다.',
       });
     }
 
     await connection.beginTransaction();
 
-    // 선택한 옵션 정보 조회
     const [selectedOption] = await connection.query(
       `SELECT 
         option_number,
@@ -107,13 +112,13 @@ router.post('/answer', async (req, res) => {
       await connection.rollback();
       return res.status(404).json({
         success: false,
-        message: '선택한 응답을 찾을 수 없습니다.'
+        message: '선택한 응답을 찾을 수 없습니다.',
       });
     }
 
     const option = selectedOption[0];
 
-    // 응답 저장
+    // score = 리커트 원점수 (1~5)
     await connection.query(
       `INSERT INTO user_survey_responses 
        (user_id, survey_session_id, question_number, option_number, score, category) 
@@ -124,18 +129,16 @@ router.post('/answer', async (req, res) => {
         question_number,
         option_number,
         option.score,
-        option.category
+        option.category,
       ]
     );
 
     await connection.commit();
 
-    // 전체 설문 수 조회
     const [totalCount] = await connection.query(
       'SELECT COUNT(*) as total FROM survey_questions WHERE is_active = TRUE'
     );
 
-    // 현재까지 답변한 수 조회
     const [answeredCount] = await connection.query(
       'SELECT COUNT(*) as count FROM user_survey_responses WHERE survey_session_id = ?',
       [session_id]
@@ -150,21 +153,22 @@ router.post('/answer', async (req, res) => {
       return res.json({
         success: true,
         data: {
-          session_id: session_id,
+          session_id,
           answered_option: {
             option_number: option.option_number,
             option_text: option.option_text,
             score: option.score,
-            category: option.category
+            category: option.category,
           },
           is_completed: true,
           progress: {
             current: currentProgress,
             total: totalQuestions,
-            remaining: 0
+            remaining: 0,
           },
-          message: '설문이 완료되었습니다. /api/survey/calculate를 호출하여 점수를 계산하세요.'
-        }
+          message:
+            '설문이 완료되었습니다. /api/survey/calculate를 호출하여 점수를 계산하세요.',
+        },
       });
     }
 
@@ -182,11 +186,10 @@ router.post('/answer', async (req, res) => {
     if (nextQuestions.length === 0) {
       return res.status(404).json({
         success: false,
-        message: '다음 문항을 찾을 수 없습니다.'
+        message: '다음 문항을 찾을 수 없습니다.',
       });
     }
 
-    // 다음 문항의 응답 옵션 조회
     const [nextOptions] = await connection.query(
       `SELECT 
         option_number,
@@ -203,12 +206,12 @@ router.post('/answer', async (req, res) => {
     res.json({
       success: true,
       data: {
-        session_id: session_id,
+        session_id,
         answered_option: {
           option_number: option.option_number,
           option_text: option.option_text,
           score: option.score,
-          category: option.category
+          category: option.category,
         },
         next_question: nextQuestions[0],
         options: nextOptions,
@@ -216,49 +219,58 @@ router.post('/answer', async (req, res) => {
         progress: {
           current: currentProgress,
           total: totalQuestions,
-          remaining: remaining
-        }
-      }
+          remaining,
+        },
+      },
     });
-
   } catch (error) {
     await connection.rollback();
     console.error('설문 응답 처리 오류:', error);
     res.status(500).json({
       success: false,
       message: '설문 응답 처리 중 오류가 발생했습니다.',
-      error: error.message
+      error: error.message,
     });
   } finally {
     connection.release();
   }
 });
 
-// 설문 결과로 점수 계산 및 저장
+/**
+ * 3. 설문 결과로 점수 계산 및 저장 (max_score 완전 무시 버전)
+ * - 각 응답 score(1~5)만 사용
+ * - 카테고리:
+ *     earned_cat = 해당 카테고리 score 합
+ *     max_cat    = 문항 수 × 5
+ *     score_cat  = (earned_cat / max_cat) × 100
+ * - 전체:
+ *     totalEarned = 모든 score 합
+ *     totalMax    = 전체 문항 수 × 5
+ *     totalScore  = (totalEarned / totalMax) × 100
+ */
 router.post('/calculate', async (req, res) => {
   const connection = await pool.getConnection();
-  
+
   try {
     const { user_id, session_id } = req.body;
 
     if (!user_id || !session_id) {
       return res.status(400).json({
         success: false,
-        message: 'user_id와 session_id는 필수입니다.'
+        message: 'user_id와 session_id는 필수입니다.',
       });
     }
 
     await connection.beginTransaction();
 
-    // 설문 응답과 각 문항의 최대 점수 조회
+    // 현재 세션의 모든 응답(리커트 1~5, 카테고리) 조회
     const [responses] = await connection.query(
       `SELECT 
         usr.category,
-        usr.score as earned_score,
-        sq.max_score
+        usr.score AS raw_score
        FROM user_survey_responses usr
-       JOIN survey_questions sq ON usr.question_number = sq.question_number
-       WHERE usr.user_id = ? AND usr.survey_session_id = ?`,
+       WHERE usr.user_id = ? 
+         AND usr.survey_session_id = ?`,
       [user_id, session_id]
     );
 
@@ -266,56 +278,66 @@ router.post('/calculate', async (req, res) => {
       await connection.rollback();
       return res.status(404).json({
         success: false,
-        message: '설문 응답을 찾을 수 없습니다.'
+        message: '설문 응답을 찾을 수 없습니다.',
       });
     }
 
-    // 카테고리별 획득 점수와 최대 점수 집계
-    const categoryData = {
-      '구강관리/양치습관': { earned: 0, max: 0 },
-      '구취/구강건조': { earned: 0, max: 0 },
-      '흡연/음주': { earned: 0, max: 0 },
-      '우식성 식품 섭취': { earned: 0, max: 0 },
-      '지각과민/불소': { earned: 0, max: 0 },
-      '구강악습관': { earned: 0, max: 0 }
-    };
+    const baseCategories = [
+      CATEGORY.ORAL_CARE,
+      CATEGORY.BAD_BREATH,
+      CATEGORY.SMOKING,
+      CATEGORY.CARIOGENIC_FOOD,
+      CATEGORY.SENSITIVITY,
+      CATEGORY.ORAL_HABITS,
+    ];
+
+    // 카테고리별 합계 관리
+    const categoryData = {};
+    baseCategories.forEach((cat) => {
+      categoryData[cat] = { sumScore: 0, count: 0 };
+    });
 
     let totalEarned = 0;
-    let totalMax = 0;
+    let totalCount = 0;
 
-    responses.forEach(row => {
-      const earned = parseFloat(row.earned_score);
-      const max = parseFloat(row.max_score);
-      
-      categoryData[row.category].earned += earned;
-      categoryData[row.category].max += max;
-      
-      totalEarned += earned;
-      totalMax += max;
-    });
+    responses.forEach((row) => {
+      const raw = Number(row.raw_score) || 0; // 1~5
 
-    // 카테고리별 표준화 점수 계산 (획득/최대 × 100)
-    const categoryScores = {};
-    Object.keys(categoryData).forEach(category => {
-      const { earned, max } = categoryData[category];
-      if (max > 0) {
-        categoryScores[category] = (earned / max) * 100;
-      } else {
-        categoryScores[category] = 0;
+      let categoryKey = row.category;
+      if (categoryKey === '구취/구강건조') {
+        categoryKey = CATEGORY.BAD_BREATH;
       }
+
+      if (!categoryData[categoryKey]) {
+        categoryData[categoryKey] = { sumScore: 0, count: 0 };
+      }
+
+      categoryData[categoryKey].sumScore += raw;
+      categoryData[categoryKey].count += 1;
+
+      totalEarned += raw;
+      totalCount += 1;
     });
 
-    // 총점 계산 (전체 획득/전체 최대 × 100)
+    // 카테고리별 0~100 점수
+    const categoryScores = {};
+    baseCategories.forEach((cat) => {
+      const { sumScore, count } = categoryData[cat] || { sumScore: 0, count: 0 };
+      const maxCat = count * 5;
+      categoryScores[cat] = maxCat > 0 ? (sumScore / maxCat) * 100 : 0;
+    });
+
+    // 전체 0~100 점수
+    const totalMax = totalCount * 5;
     const totalScore = totalMax > 0 ? (totalEarned / totalMax) * 100 : 0;
 
-    // 기존 점수 확인
+    // 기존 점수 존재 여부 확인
     const [existing] = await connection.query(
       'SELECT id FROM user_health_scores WHERE user_id = ?',
       [user_id]
     );
 
     if (existing.length > 0) {
-      // 업데이트
       await connection.query(
         `UPDATE user_health_scores 
          SET total_score = ?,
@@ -331,18 +353,17 @@ router.post('/calculate', async (req, res) => {
          WHERE user_id = ?`,
         [
           totalScore,
-          categoryScores['구강관리/양치습관'],
-          categoryScores['구취/구강건조'],
-          categoryScores['흡연/음주'],
-          categoryScores['우식성 식품 섭취'],
-          categoryScores['지각과민/불소'],
-          categoryScores['구강악습관'],
+          categoryScores[CATEGORY.ORAL_CARE],
+          categoryScores[CATEGORY.BAD_BREATH],
+          categoryScores[CATEGORY.SMOKING],
+          categoryScores[CATEGORY.CARIOGENIC_FOOD],
+          categoryScores[CATEGORY.SENSITIVITY],
+          categoryScores[CATEGORY.ORAL_HABITS],
           session_id,
-          user_id
+          user_id,
         ]
       );
     } else {
-      // 생성
       await connection.query(
         `INSERT INTO user_health_scores 
          (user_id, total_score, oral_care_score, cavity_dryness_score,
@@ -352,13 +373,13 @@ router.post('/calculate', async (req, res) => {
         [
           user_id,
           totalScore,
-          categoryScores['구강관리/양치습관'],
-          categoryScores['구취/구강건조'],
-          categoryScores['흡연/음주'],
-          categoryScores['우식성 식품 섭취'],
-          categoryScores['지각과민/불소'],
-          categoryScores['구강악습관'],
-          session_id
+          categoryScores[CATEGORY.ORAL_CARE],
+          categoryScores[CATEGORY.BAD_BREATH],
+          categoryScores[CATEGORY.SMOKING],
+          categoryScores[CATEGORY.CARIOGENIC_FOOD],
+          categoryScores[CATEGORY.SENSITIVITY],
+          categoryScores[CATEGORY.ORAL_HABITS],
+          session_id,
         ]
       );
     }
@@ -373,17 +394,19 @@ router.post('/calculate', async (req, res) => {
       [
         user_id,
         totalScore,
-        categoryScores['구강관리/양치습관'],
-        categoryScores['구취/구강건조'],
-        categoryScores['흡연/음주'],
-        categoryScores['우식성 식품 섭취'],
-        categoryScores['지각과민/불소'],
-        categoryScores['구강악습관'],
+        categoryScores[CATEGORY.ORAL_CARE],
+        categoryScores[CATEGORY.BAD_BREATH],
+        categoryScores[CATEGORY.SMOKING],
+        categoryScores[CATEGORY.CARIOGENIC_FOOD],
+        categoryScores[CATEGORY.SENSITIVITY],
+        categoryScores[CATEGORY.ORAL_HABITS],
         session_id,
         JSON.stringify({
-          session_id: session_id,
-          calculated_at: new Date().toISOString()
-        })
+          session_id,
+          calculated_at: new Date().toISOString(),
+          totalEarned,
+          totalMax,
+        }),
       ]
     );
 
@@ -393,37 +416,45 @@ router.post('/calculate', async (req, res) => {
       success: true,
       message: '점수가 계산되어 저장되었습니다.',
       data: {
-        total_score: parseFloat(totalScore.toFixed(2)),
+        total_score: Number(totalScore.toFixed(2)),
         categories: {
-          '구강관리/양치습관': parseFloat(categoryScores['구강관리/양치습관'].toFixed(2)),
-          '구취/구강건조': parseFloat(categoryScores['구취/구강건조'].toFixed(2)),
-          '흡연/음주': parseFloat(categoryScores['흡연/음주'].toFixed(2)),
-          '우식성 식품 섭취': parseFloat(categoryScores['우식성 식품 섭취'].toFixed(2)),
-          '지각과민/불소': parseFloat(categoryScores['지각과민/불소'].toFixed(2)),
-          '구강악습관': parseFloat(categoryScores['구강악습관'].toFixed(2))
+          [CATEGORY.ORAL_CARE]: Number(
+            categoryScores[CATEGORY.ORAL_CARE].toFixed(2)
+          ),
+          [CATEGORY.BAD_BREATH]: Number(
+            categoryScores[CATEGORY.BAD_BREATH].toFixed(2)
+          ),
+          [CATEGORY.SMOKING]: Number(
+            categoryScores[CATEGORY.SMOKING].toFixed(2)
+          ),
+          [CATEGORY.CARIOGENIC_FOOD]: Number(
+            categoryScores[CATEGORY.CARIOGENIC_FOOD].toFixed(2)
+          ),
+          [CATEGORY.SENSITIVITY]: Number(
+            categoryScores[CATEGORY.SENSITIVITY].toFixed(2)
+          ),
+          [CATEGORY.ORAL_HABITS]: Number(
+            categoryScores[CATEGORY.ORAL_HABITS].toFixed(2)
+          ),
         },
-        calculation_details: {
-          total_earned: totalEarned,
-          total_max: totalMax,
-          formula: '(획득 점수 / 최대 점수) × 100'
-        }
-      }
+      },
     });
-
   } catch (error) {
     await connection.rollback();
     console.error('점수 계산 오류:', error);
     res.status(500).json({
       success: false,
       message: '점수 계산 중 오류가 발생했습니다.',
-      error: error.message
+      error: error.message,
     });
   } finally {
     connection.release();
   }
 });
 
-// 사용자의 설문 응답 이력 조회
+/**
+ * 4. 사용자의 설문 응답 이력 조회
+ */
 router.get('/responses/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
@@ -434,7 +465,7 @@ router.get('/responses/:userId', async (req, res) => {
         usr.id,
         usr.survey_session_id,
         usr.question_number,
-        sqm.question_text,
+        sq.question_text,
         usr.option_number,
         sqo.option_text,
         usr.score,
@@ -442,8 +473,9 @@ router.get('/responses/:userId', async (req, res) => {
         usr.answered_at
       FROM user_survey_responses usr
       JOIN survey_questions sq ON usr.question_number = sq.question_number
-      JOIN survey_question_options sqo ON usr.question_number = sqo.question_number 
-        AND usr.option_number = sqo.option_number
+      JOIN survey_question_options sqo 
+        ON usr.question_number = sqo.question_number 
+       AND usr.option_number   = sqo.option_number
       WHERE usr.user_id = ?
     `;
 
@@ -461,20 +493,21 @@ router.get('/responses/:userId', async (req, res) => {
     res.json({
       success: true,
       count: responses.length,
-      data: responses
+      data: responses,
     });
-
   } catch (error) {
     console.error('응답 이력 조회 오류:', error);
     res.status(500).json({
       success: false,
       message: '응답 이력 조회 중 오류가 발생했습니다.',
-      error: error.message
+      error: error.message,
     });
   }
 });
 
-// 특정 문항 조회 (관리자용)
+/**
+ * 5. 특정 문항 조회 (관리자용)
+ */
 router.get('/questions/:questionNumber', async (req, res) => {
   try {
     const { questionNumber } = req.params;
@@ -487,12 +520,14 @@ router.get('/questions/:questionNumber', async (req, res) => {
     if (questions.length === 0) {
       return res.status(404).json({
         success: false,
-        message: '문항을 찾을 수 없습니다.'
+        message: '문항을 찾을 수 없습니다.',
       });
     }
 
     const [options] = await pool.query(
-      `SELECT * FROM survey_question_options WHERE question_number = ? ORDER BY option_number`,
+      `SELECT * FROM survey_question_options 
+        WHERE question_number = ? 
+        ORDER BY option_number`,
       [questionNumber]
     );
 
@@ -500,19 +535,17 @@ router.get('/questions/:questionNumber', async (req, res) => {
       success: true,
       data: {
         question: questions[0],
-        options: options
-      }
+        options,
+      },
     });
-
   } catch (error) {
     console.error('문항 조회 오류:', error);
     res.status(500).json({
       success: false,
       message: '문항 조회 중 오류가 발생했습니다.',
-      error: error.message
+      error: error.message,
     });
   }
 });
 
 module.exports = router;
-
