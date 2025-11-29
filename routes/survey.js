@@ -1,3 +1,4 @@
+// routes/survey.js
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../config/database');
@@ -8,7 +9,7 @@ const { v4: uuidv4 } = require('uuid');
  */
 const CATEGORY = {
   ORAL_CARE: '구강관리/양치습관',
-  BAD_BREATH: '구치/구강건조', // DB enum 기준
+  BAD_BREATH: '구취/구강건조', // DB enum 기준
   SMOKING: '흡연/음주',
   CARIOGENIC_FOOD: '우식성 식품 섭취',
   SENSITIVITY: '지각과민/불소',
@@ -79,7 +80,7 @@ router.get('/start', async (req, res) => {
 
 /**
  * 2. 설문 응답 제출 및 다음 문항 조회
- * - user_survey_responses.score 에는 항상 리커트 원점수(1~5) 저장
+ * - user_survey_responses.score 에는 항상 설문표의 score(1~5 혹은 0) 저장
  */
 router.post('/answer', async (req, res) => {
   const connection = await pool.getConnection();
@@ -118,7 +119,7 @@ router.post('/answer', async (req, res) => {
 
     const option = selectedOption[0];
 
-    // score = 리커트 원점수 (1~5)
+    // score = 설문표에 정의된 점수 (1~5 혹은 0)
     await connection.query(
       `INSERT INTO user_survey_responses 
        (user_id, survey_session_id, question_number, option_number, score, category) 
@@ -237,18 +238,11 @@ router.post('/answer', async (req, res) => {
 });
 
 /**
- * 3. 설문 결과로 점수 계산 및 저장 (max_score 완전 무시 버전)
- * - 각 응답 score(1~5)만 사용
- * - 카테고리:
- *     earned_cat = 해당 카테고리 score 합
- *     max_cat    = 문항 수 × 5
- *     score_cat  = (earned_cat / max_cat) × 100
- * - 전체:
- *     totalEarned = 모든 score 합
- *     totalMax    = 전체 문항 수 × 5
- *     totalScore  = (totalEarned / totalMax) × 100
+ * 3. 설문 결과로 점수 계산 및 저장
+ * - 분기 문항(배점 0)은 계산에서 제외
+ * - 어떤 카테고리의 실제 점수 문항(score>0)에 전혀 응답하지 않은 경우
+ *   → 그 문항들은 모두 5점으로 응답한 것으로 간주 (스킵 보정)
  */
-// 3. 설문 결과로 점수 계산 및 저장
 router.post('/calculate', async (req, res) => {
   const connection = await pool.getConnection();
 
@@ -264,7 +258,7 @@ router.post('/calculate', async (req, res) => {
 
     await connection.beginTransaction();
 
-    // 1) 이번 세션의 응답(리커트 1~5, 카테고리) 조회
+    // 1) 이번 세션의 응답(score, category) 조회
     const [responses] = await connection.query(
       `SELECT 
          usr.category,
@@ -283,10 +277,11 @@ router.post('/calculate', async (req, res) => {
       });
     }
 
-    // 2) 카테고리별 전체 문항 수 조회 (skip 보정용)
+    // 2) 카테고리별 "실제 점수 문항 수" 조회 (score > 0 인 문항만 카운트)
     const [categoryStats] = await connection.query(
       `SELECT category, COUNT(DISTINCT question_number) AS question_count
        FROM survey_question_options
+       WHERE score > 0
        GROUP BY category`
     );
 
@@ -304,14 +299,17 @@ router.post('/calculate', async (req, res) => {
       CATEGORY.ORAL_HABITS,
     ];
 
-    // 3) 카테고리별 합계(응답만 기준)
+    // 3) 카테고리별 합계(응답 기준, 단 score<=0 은 분기 문항으로 보고 제외)
     const categoryData = {};
     baseCategories.forEach((cat) => {
       categoryData[cat] = { sumScore: 0, count: 0 };
     });
 
     responses.forEach((row) => {
-      const raw = Number(row.raw_score) || 0; // 1~5
+      const raw = Number(row.raw_score);
+
+      // 분기 문항(배점 0) → 계산에서 완전히 제외
+      if (!raw || raw <= 0) return;
 
       let categoryKey = row.category;
       // DB enum이 '구취/구강건조' 인 경우 상수와 맞춰주기
@@ -327,14 +325,21 @@ router.post('/calculate', async (req, res) => {
       categoryData[categoryKey].count += 1;
     });
 
-    // 4) ★ 비흡연자 skip 보정 로직
-    //    흡연/음주 카테고리에 응답이 "하나도 없으면" → 
-    //    전체 흡연 문항 수 × 5점으로 채운 것으로 간주
+    // 4) 스킵 보정 로직
+    //    - 특정 카테고리의 "실제 점수 문항(score>0)"이 존재하지만,
+    //      사용자가 그 카테고리에 대해 점수를 준 문항이 하나도 없으면
+    //      → 해당 문항들을 모두 5점으로 응답한 것으로 간주.
     baseCategories.forEach((cat) => {
-      if (cat === CATEGORY.SMOKING && categoryData[cat].count === 0) {
-        const qCount = totalQuestionsByCategory[cat] || 0;
-        categoryData[cat].sumScore = qCount * 5; // 모든 문항 5점
-        categoryData[cat].count = qCount;
+      const totalQ = totalQuestionsByCategory[cat] || 0;
+
+      if (totalQ === 0) return; // 애초에 점수 문항이 없는 카테고리
+
+      const { count } = categoryData[cat];
+
+      if (count === 0) {
+        // 이 카테고리는 전부 스킵된 것으로 보고, full score 로 처리
+        categoryData[cat].sumScore = totalQ * 5;
+        categoryData[cat].count = totalQ;
       }
     });
 
