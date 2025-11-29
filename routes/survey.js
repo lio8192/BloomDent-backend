@@ -273,7 +273,7 @@ router.post('/calculate', async (req, res) => {
     // 카테고리별 획득 점수와 최대 점수 집계
     const categoryData = {
       '구강관리/양치습관': { earned: 0, max: 0 },
-      '구치/구강건조': { earned: 0, max: 0 },
+      '구취/구강건조': { earned: 0, max: 0 },
       '흡연/음주': { earned: 0, max: 0 },
       '우식성 식품 섭취': { earned: 0, max: 0 },
       '지각과민/불소': { earned: 0, max: 0 },
@@ -332,7 +332,7 @@ router.post('/calculate', async (req, res) => {
         [
           totalScore,
           categoryScores['구강관리/양치습관'],
-          categoryScores['구치/구강건조'],
+          categoryScores['구취/구강건조'],
           categoryScores['흡연/음주'],
           categoryScores['우식성 식품 섭취'],
           categoryScores['지각과민/불소'],
@@ -353,7 +353,7 @@ router.post('/calculate', async (req, res) => {
           user_id,
           totalScore,
           categoryScores['구강관리/양치습관'],
-          categoryScores['구치/구강건조'],
+          categoryScores['구취/구강건조'],
           categoryScores['흡연/음주'],
           categoryScores['우식성 식품 섭취'],
           categoryScores['지각과민/불소'],
@@ -374,7 +374,7 @@ router.post('/calculate', async (req, res) => {
         user_id,
         totalScore,
         categoryScores['구강관리/양치습관'],
-        categoryScores['구치/구강건조'],
+        categoryScores['구취/구강건조'],
         categoryScores['흡연/음주'],
         categoryScores['우식성 식품 섭취'],
         categoryScores['지각과민/불소'],
@@ -396,7 +396,7 @@ router.post('/calculate', async (req, res) => {
         total_score: parseFloat(totalScore.toFixed(2)),
         categories: {
           '구강관리/양치습관': parseFloat(categoryScores['구강관리/양치습관'].toFixed(2)),
-          '구치/구강건조': parseFloat(categoryScores['구치/구강건조'].toFixed(2)),
+          '구취/구강건조': parseFloat(categoryScores['구취/구강건조'].toFixed(2)),
           '흡연/음주': parseFloat(categoryScores['흡연/음주'].toFixed(2)),
           '우식성 식품 섭취': parseFloat(categoryScores['우식성 식품 섭취'].toFixed(2)),
           '지각과민/불소': parseFloat(categoryScores['지각과민/불소'].toFixed(2)),
