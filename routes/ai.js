@@ -12,7 +12,7 @@ router.get('/test', async (req, res) => {
     const prompt = '제미나이 GenAI SDK 테스트입니다. 공손한 한국어로 한 줄 인사해 주세요.';
 
     const result = await ai.models.generateContent({
-      // 빠르고 저렴한 버전: gemini-2.0-flash, 더 강력: gemini-2.5-pro
+      // 빠르고 저렴한 버전: gemini-2.0-flash
       model: 'gemini-2.0-flash',
       contents: [
         {
@@ -122,7 +122,7 @@ ${JSON.stringify(responses, null, 2)}
     `;
 
     const result = await ai.models.generateContent({
-      model: 'gemini-2.0-pro',
+      model: 'gemini-2.0-flash',
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
     });
 
@@ -204,7 +204,7 @@ ${JSON.stringify(responses, null, 2)}
     `;
 
     const result = await ai.models.generateContent({
-      model: 'gemini-2.0-pro',
+      model: 'gemini-2.0-flash',
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
     });
 
