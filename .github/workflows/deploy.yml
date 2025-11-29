@@ -56,6 +56,9 @@ jobs:
           CLOUDINARY_CLOUD_NAME=${{ secrets.CLOUDINARY_CLOUD_NAME }}
           CLOUDINARY_API_KEY=${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET=${{ secrets.CLOUDINARY_API_SECRET }}
+
+          # 제미나이 API KEY Setting
+          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
           EOF
           echo "✅ .env 파일이 생성되었습니다."
       
