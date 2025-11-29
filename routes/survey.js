@@ -248,6 +248,7 @@ router.post('/answer', async (req, res) => {
  *     totalMax    = 전체 문항 수 × 5
  *     totalScore  = (totalEarned / totalMax) × 100
  */
+// 3. 설문 결과로 점수 계산 및 저장
 router.post('/calculate', async (req, res) => {
   const connection = await pool.getConnection();
 
@@ -263,13 +264,13 @@ router.post('/calculate', async (req, res) => {
 
     await connection.beginTransaction();
 
-    // 현재 세션의 모든 응답(리커트 1~5, 카테고리) 조회
+    // 1) 이번 세션의 응답(리커트 1~5, 카테고리) 조회
     const [responses] = await connection.query(
       `SELECT 
-        usr.category,
-        usr.score AS raw_score
+         usr.category,
+         usr.score AS raw_score
        FROM user_survey_responses usr
-       WHERE usr.user_id = ? 
+       WHERE usr.user_id = ?
          AND usr.survey_session_id = ?`,
       [user_id, session_id]
     );
@@ -282,6 +283,18 @@ router.post('/calculate', async (req, res) => {
       });
     }
 
+    // 2) 카테고리별 전체 문항 수 조회 (skip 보정용)
+    const [categoryStats] = await connection.query(
+      `SELECT category, COUNT(DISTINCT question_number) AS question_count
+       FROM survey_question_options
+       GROUP BY category`
+    );
+
+    const totalQuestionsByCategory = {};
+    categoryStats.forEach((row) => {
+      totalQuestionsByCategory[row.category] = row.question_count;
+    });
+
     const baseCategories = [
       CATEGORY.ORAL_CARE,
       CATEGORY.BAD_BREATH,
@@ -291,19 +304,17 @@ router.post('/calculate', async (req, res) => {
       CATEGORY.ORAL_HABITS,
     ];
 
-    // 카테고리별 합계 관리
+    // 3) 카테고리별 합계(응답만 기준)
     const categoryData = {};
     baseCategories.forEach((cat) => {
       categoryData[cat] = { sumScore: 0, count: 0 };
     });
 
-    let totalEarned = 0;
-    let totalCount = 0;
-
     responses.forEach((row) => {
       const raw = Number(row.raw_score) || 0; // 1~5
 
       let categoryKey = row.category;
+      // DB enum이 '구취/구강건조' 인 경우 상수와 맞춰주기
       if (categoryKey === '구취/구강건조') {
         categoryKey = CATEGORY.BAD_BREATH;
       }
@@ -314,24 +325,40 @@ router.post('/calculate', async (req, res) => {
 
       categoryData[categoryKey].sumScore += raw;
       categoryData[categoryKey].count += 1;
-
-      totalEarned += raw;
-      totalCount += 1;
     });
 
-    // 카테고리별 0~100 점수
-    const categoryScores = {};
+    // 4) ★ 비흡연자 skip 보정 로직
+    //    흡연/음주 카테고리에 응답이 "하나도 없으면" → 
+    //    전체 흡연 문항 수 × 5점으로 채운 것으로 간주
     baseCategories.forEach((cat) => {
-      const { sumScore, count } = categoryData[cat] || { sumScore: 0, count: 0 };
-      const maxCat = count * 5;
-      categoryScores[cat] = maxCat > 0 ? (sumScore / maxCat) * 100 : 0;
+      if (cat === CATEGORY.SMOKING && categoryData[cat].count === 0) {
+        const qCount = totalQuestionsByCategory[cat] || 0;
+        categoryData[cat].sumScore = qCount * 5; // 모든 문항 5점
+        categoryData[cat].count = qCount;
+      }
     });
 
-    // 전체 0~100 점수
-    const totalMax = totalCount * 5;
+    // 5) 카테고리/전체 점수 계산
+    const categoryScores = {};
+    let totalEarned = 0;
+    let totalMax = 0;
+
+    baseCategories.forEach((cat) => {
+      const { sumScore, count } = categoryData[cat] || {
+        sumScore: 0,
+        count: 0,
+      };
+      const maxCat = count * 5;
+
+      categoryScores[cat] = maxCat > 0 ? (sumScore / maxCat) * 100 : 0;
+
+      totalEarned += sumScore;
+      totalMax += maxCat;
+    });
+
     const totalScore = totalMax > 0 ? (totalEarned / totalMax) * 100 : 0;
 
-    // 기존 점수 존재 여부 확인
+    // 6) user_health_scores upsert
     const [existing] = await connection.query(
       'SELECT id FROM user_health_scores WHERE user_id = ?',
       [user_id]
@@ -384,7 +411,7 @@ router.post('/calculate', async (req, res) => {
       );
     }
 
-    // 이력 저장
+    // 7) 이력 저장
     await connection.query(
       `INSERT INTO score_history 
        (user_id, total_score, oral_care_score, cavity_dryness_score,
