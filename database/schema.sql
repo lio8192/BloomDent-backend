@@ -120,6 +120,7 @@ CREATE TABLE IF NOT EXISTS image_analysis (
   overall_score DECIMAL(3, 1) COMMENT '종합 점수 (0-10)',
   recommendations TEXT COMMENT '추천 사항',
   ai_confidence DECIMAL(5, 2) COMMENT 'AI 신뢰도 (%)',
+  analyzed_image_url TEXT COMMENT '분석 결과 이미지 URL (Cloudinary)',
   raw_response JSON COMMENT 'AI 원본 응답',
   analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (image_id) REFERENCES dental_images(id) ON DELETE CASCADE,

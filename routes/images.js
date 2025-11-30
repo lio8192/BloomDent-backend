@@ -152,21 +152,44 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     const imageId = imageResult.insertId;
     console.log('💾 DB 저장 완료, Image ID:', imageId);
 
-    // 5. Flask AI 서버로 비동기 분석 요청
-    console.log('🤖 AI 분석 요청 전송 중...');
-    
-    // 분석 상태를 processing으로 변경
-    await pool.query(
-      'UPDATE dental_images SET analysis_status = "processing" WHERE id = ?',
-      [imageId]
+    // 5. 임시 파일 삭제 (Cloudinary 업로드 완료 후)
+    if (tempFilePath) {
+      deleteTempFile(tempFilePath);
+    }
+
+    // 6. 해당 history_id의 이미지들이 모두 모였는지 확인
+    const [historyImages] = await pool.query(
+      `SELECT position, cloudinary_url 
+       FROM dental_images 
+       WHERE history_id = ? AND position IN ('upper', 'lower', 'front')`,
+      [historyId]
     );
 
-    // 비동기로 AI 분석 처리 (응답을 기다리지 않음)
-    processAIAnalysis(imageId, cloudinaryResult.cloudinary_url, tempFilePath).catch(err => {
-      console.error('AI 분석 백그라운드 처리 오류:', err);
-    });
+    const positions = new Set(historyImages.map(img => img.position));
+    const hasAllThree = positions.has('upper') && positions.has('lower') && positions.has('front');
 
-    // 6. 즉시 응답 반환 (분석은 백그라운드에서 진행)
+    if (hasAllThree) {
+      console.log('✅ 3개 이미지 모두 모임, 일괄 분석 시작:', historyId);
+      
+      // 해당 history_id의 모든 이미지 상태를 processing으로 변경
+      await pool.query(
+        'UPDATE dental_images SET analysis_status = "processing" WHERE history_id = ?',
+        [historyId]
+      );
+
+      // 일괄 분석 요청 (비동기, 응답을 기다리지 않음)
+      processBatchAIAnalysis(historyId, historyImages).catch(err => {
+        console.error('일괄 AI 분석 백그라운드 처리 오류:', err);
+      });
+    } else {
+      console.log('⏳ 이미지 대기 중...', { 
+        historyId, 
+        current: Array.from(positions),
+        needed: ['upper', 'lower', 'front']
+      });
+    }
+
+    // 7. 즉시 응답 반환 (분석은 백그라운드에서 진행)
     res.status(201).json({
       success: true,
       message: '이미지 업로드 완료. 분석이 진행 중입니다.',
@@ -194,69 +217,56 @@ router.post('/upload', upload.single('image'), async (req, res) => {
   }
 });
 
-// AI 분석 백그라운드 처리 함수
-async function processAIAnalysis(imageId, imageUrl, tempFilePath) {
+// 일괄 AI 분석 백그라운드 처리 함수
+async function processBatchAIAnalysis(historyId, images) {
   try {
-    console.log(`🔄 [Image ${imageId}] AI 분석 시작...`);
+    console.log(`🔄 [History ${historyId}] 일괄 AI 분석 시작...`);
 
-    // Flask AI 서버로 요청
+    // 요청 형식에 맞게 이미지 데이터 구성
+    const imagesPayload = images.map(img => ({
+      image_type: img.position, // position 값을 image_type으로 매핑
+      cloudinary_url: img.cloudinary_url
+    }));
+
+    const requestPayload = {
+      history_id: historyId,
+      images: imagesPayload
+    };
+
+    console.log(`📤 [History ${historyId}] 일괄 분석 요청 전송:`, requestPayload);
+
+    // Flask AI 서버로 일괄 분석 요청
     const aiResponse = await axios.post(
-      `${AI_SERVER_URL}/api/analyze`,
+      `${AI_SERVER_URL}/api/analyze-batch`,
+      requestPayload,
       {
-        image_url: imageUrl,
-        image_id: imageId
-      },
-      {
-        timeout: 60000 // 60초 타임아웃
+        timeout: 120000 // 120초 타임아웃 (3개 이미지 분석이므로 더 길게)
       }
     );
 
-    console.log(`✅ [Image ${imageId}] AI 분석 완료`);
+    console.log(`✅ [History ${historyId}] 일괄 AI 분석 요청 전송 완료`);
 
-    const analysisData = aiResponse.data;
-
-    // DB에 분석 결과 저장
-    await pool.query(
-      `INSERT INTO image_analysis 
-       (image_id, occlusion_status, occlusion_comment, cavity_detected, 
-        cavity_locations, cavity_comment, overall_score, recommendations, 
-        ai_confidence, raw_response) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        imageId,
-        analysisData.occlusion_status || null,
-        analysisData.occlusion_comment || null,
-        analysisData.cavity_detected || false,
-        JSON.stringify(analysisData.cavity_locations || []),
-        analysisData.cavity_comment || null,
-        analysisData.overall_score || null,
-        analysisData.recommendations || null,
-        analysisData.ai_confidence || null,
-        JSON.stringify(analysisData)
-      ]
-    );
-
-    // 이미지 상태를 completed로 변경
-    await pool.query(
-      'UPDATE dental_images SET analysis_status = "completed" WHERE id = ?',
-      [imageId]
-    );
-
-    console.log(`💾 [Image ${imageId}] 분석 결과 저장 완료`);
+    if (aiResponse.data.success) {
+      // success: true는 AI 서버가 데이터를 잘 받았다는 의미일 뿐
+      // 실제 분석 완료는 /api/analyze-result 엔드포인트에서 처리됨
+      console.log(`📥 [History ${historyId}] AI 서버가 분석 요청을 수신했습니다. 결과 대기 중...`);
+    } else {
+      // 분석 요청 실패 시 상태를 failed로 변경
+      await pool.query(
+        'UPDATE dental_images SET analysis_status = "failed" WHERE history_id = ?',
+        [historyId]
+      );
+      console.error(`❌ [History ${historyId}] AI 분석 요청 실패:`, aiResponse.data.error);
+    }
 
   } catch (error) {
-    console.error(`❌ [Image ${imageId}] AI 분석 실패:`, error.message);
+    console.error(`❌ [History ${historyId}] 일괄 AI 분석 실패:`, error.message);
 
-    // 이미지 상태를 failed로 변경
+    // 에러 발생 시 해당 history_id의 모든 이미지 상태를 failed로 변경
     await pool.query(
-      'UPDATE dental_images SET analysis_status = "failed" WHERE id = ?',
-      [imageId]
+      'UPDATE dental_images SET analysis_status = "failed" WHERE history_id = ?',
+      [historyId]
     );
-  } finally {
-    // 임시 파일 삭제
-    if (tempFilePath) {
-      deleteTempFile(tempFilePath);
-    }
   }
 }
 
@@ -315,6 +325,7 @@ router.get('/history/:historyId/analysis', async (req, res) => {
     const { historyId } = req.params;
 
     // 해당 history_id의 모든 이미지와 분석 결과 조회
+    // 실제 테이블 구조: image_analysis는 history_id와 image_type을 사용
     const [results] = await pool.query(
       `SELECT 
         di.id,
@@ -332,9 +343,10 @@ router.get('/history/:historyId/analysis', async (req, res) => {
         ia.overall_score,
         ia.recommendations,
         ia.ai_confidence,
+        ia.analyzed_image_url,
         ia.analyzed_at
        FROM dental_images di
-       LEFT JOIN image_analysis ia ON di.id = ia.image_id
+       LEFT JOIN image_analysis ia ON di.history_id = ia.history_id AND di.position = ia.image_type
        WHERE di.history_id = ?
        ORDER BY 
          CASE di.position
@@ -382,6 +394,7 @@ router.get('/history/:historyId/analysis', async (req, res) => {
             overall_score: result.overall_score,
             recommendations: result.recommendations,
             ai_confidence: result.ai_confidence,
+            analyzed_image_url: result.analyzed_image_url,
             analyzed_at: result.analyzed_at
           } : null
         };
@@ -438,6 +451,251 @@ router.get('/user/:userId/histories', async (req, res) => {
       success: false,
       message: 'history 목록 조회 중 오류가 발생했습니다.',
       error: error.message
+    });
+  }
+});
+
+// AI 분석 결과 수신 엔드포인트 (AI 서버에서 호출)
+router.post('/analyze-result', upload.fields([
+  { name: 'analysis_result', maxCount: 1 },
+  { name: 'upper_result_image', maxCount: 1 },
+  { name: 'front_result_image', maxCount: 1 },
+  { name: 'lower_result_image', maxCount: 1 }
+]), async (req, res) => {
+  let tempFilePaths = [];
+  
+  try {
+    // 1. analysis_result JSON 파싱
+    if (!req.body.analysis_result) {
+      return res.status(400).json({
+        success: false,
+        error: 'analysis_result 필드가 필요합니다.'
+      });
+    }
+
+    let analysisData;
+    try {
+      analysisData = typeof req.body.analysis_result === 'string' 
+        ? JSON.parse(req.body.analysis_result)
+        : req.body.analysis_result;
+    } catch (parseError) {
+      return res.status(400).json({
+        success: false,
+        error: 'analysis_result JSON 파싱 실패: ' + parseError.message
+      });
+    }
+
+    const { history_id, results, summary } = analysisData;
+
+    if (!history_id || !results) {
+      return res.status(400).json({
+        success: false,
+        error: 'history_id와 results 필드가 필요합니다.'
+      });
+    }
+
+    console.log(`📥 [History ${history_id}] 분석 결과 수신`);
+
+    // 2. 해당 history_id의 이미지들 조회
+    const [images] = await pool.query(
+      `SELECT id, user_id, position, cloudinary_url FROM dental_images 
+       WHERE history_id = ? AND position IN ('upper', 'lower', 'front')`,
+      [history_id]
+    );
+
+    if (images.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: `history_id ${history_id}에 해당하는 이미지를 찾을 수 없습니다.`
+      });
+    }
+
+    // position별로 이미지 정보 매핑
+    const imageInfoMap = {};
+    let userId = null;
+    for (const img of images) {
+      imageInfoMap[img.position] = {
+        id: img.id,
+        cloudinary_url: img.cloudinary_url
+      };
+      if (!userId && img.user_id) {
+        userId = img.user_id;
+      }
+    }
+
+    // 3. 분석 결과 이미지들을 Cloudinary에 업로드
+    const resultImageUrls = {};
+    const imageFields = ['upper_result_image', 'front_result_image', 'lower_result_image'];
+    
+    for (const fieldName of imageFields) {
+      const position = fieldName.replace('_result_image', '');
+      const file = req.files[fieldName]?.[0];
+      
+      if (file) {
+        // 임시 파일 저장
+        const tempFilePath = saveTempFile(file.buffer, `${position}_result.jpg`);
+        tempFilePaths.push(tempFilePath);
+
+        // Cloudinary에 업로드
+        const cloudinaryResult = await uploadImage(tempFilePath, {
+          folder: 'dental-analysis-results',
+          transformation: [
+            { quality: 'auto' },
+            { fetch_format: 'auto' }
+          ]
+        });
+
+        if (cloudinaryResult.success) {
+          resultImageUrls[position] = cloudinaryResult.cloudinary_url;
+          console.log(`✅ [History ${history_id}] ${position} 분석 결과 이미지 업로드 완료`);
+        } else {
+          console.warn(`⚠️ [History ${history_id}] ${position} 분석 결과 이미지 업로드 실패:`, cloudinaryResult.error);
+        }
+      }
+    }
+
+    // 4. 각 position별로 분석 결과 저장
+    const positions = ['upper', 'lower', 'front'];
+    
+    for (const position of positions) {
+      const imageInfo = imageInfoMap[position];
+      const result = results[position];
+
+      if (!imageInfo) {
+        console.warn(`⚠️ [History ${history_id}] ${position} 이미지 정보를 찾을 수 없습니다.`);
+        continue;
+      }
+
+      if (!result) {
+        console.warn(`⚠️ [History ${history_id}] ${position} 분석 결과가 없습니다.`);
+        continue;
+      }
+
+      // 분석 결과 데이터 구성
+      const analyzedImageUrl = resultImageUrls[position] || null;
+      const analysisResult = {
+        occlusion_status: result.occlusion_status || null,
+        occlusion_comment: result.occlusion_comment || null,
+        cavity_detected: result.cavity_detected || false,
+        cavity_locations: JSON.stringify(result.cavity_locations || []),
+        cavity_comment: result.cavity_comment || null,
+        overall_score: result.overall_score || null,
+        recommendations: result.recommendations || null,
+        ai_confidence: result.ai_confidence || null,
+        analyzed_image_url: analyzedImageUrl,
+        raw_response: JSON.stringify({
+          ...result,
+          summary: summary,
+          analyzed_image_url: analyzedImageUrl
+        })
+      };
+
+      // image_analysis 테이블에 저장 (기존 레코드가 있으면 업데이트)
+      // 실제 테이블 구조: history_id, image_type을 사용
+      const [existingAnalysis] = await pool.query(
+        'SELECT id FROM image_analysis WHERE history_id = ? AND image_type = ?',
+        [history_id, position]
+      );
+
+      if (existingAnalysis.length > 0) {
+        // 기존 레코드 업데이트
+        await pool.query(
+          `UPDATE image_analysis SET
+           user_id = ?,
+           cloudinary_url = ?,
+           analysis_status = ?,
+           occlusion_status = ?,
+           occlusion_comment = ?,
+           cavity_detected = ?,
+           cavity_locations = ?,
+           cavity_comment = ?,
+           overall_score = ?,
+           recommendations = ?,
+           ai_confidence = ?,
+           analyzed_image_url = ?,
+           raw_response = ?,
+           analyzed_at = CURRENT_TIMESTAMP
+           WHERE history_id = ? AND image_type = ?`,
+          [
+            userId ? String(userId) : null,
+            imageInfo.cloudinary_url,
+            'completed',
+            analysisResult.occlusion_status,
+            analysisResult.occlusion_comment,
+            analysisResult.cavity_detected,
+            analysisResult.cavity_locations,
+            analysisResult.cavity_comment,
+            analysisResult.overall_score,
+            analysisResult.recommendations,
+            analysisResult.ai_confidence,
+            analysisResult.analyzed_image_url,
+            analysisResult.raw_response,
+            history_id,
+            position
+          ]
+        );
+      } else {
+        // 새 레코드 삽입
+        await pool.query(
+          `INSERT INTO image_analysis 
+           (user_id, history_id, cloudinary_url, image_type, uploaded_at, analysis_status,
+            occlusion_status, occlusion_comment, cavity_detected, 
+            cavity_locations, cavity_comment, overall_score, recommendations, 
+            ai_confidence, analyzed_image_url, raw_response) 
+           VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            userId ? String(userId) : null,
+            history_id,
+            imageInfo.cloudinary_url,
+            position,
+            'completed',
+            analysisResult.occlusion_status,
+            analysisResult.occlusion_comment,
+            analysisResult.cavity_detected,
+            analysisResult.cavity_locations,
+            analysisResult.cavity_comment,
+            analysisResult.overall_score,
+            analysisResult.recommendations,
+            analysisResult.ai_confidence,
+            analysisResult.analyzed_image_url,
+            analysisResult.raw_response
+          ]
+        );
+      }
+
+      console.log(`💾 [History ${history_id}] ${position} 분석 결과 저장 완료`);
+    }
+
+    // 5. 해당 history_id의 모든 이미지 상태를 completed로 변경
+    await pool.query(
+      'UPDATE dental_images SET analysis_status = "completed" WHERE history_id = ?',
+      [history_id]
+    );
+
+    console.log(`✅ [History ${history_id}] 모든 분석 결과 저장 및 상태 업데이트 완료`);
+
+    // 6. 임시 파일 삭제
+    for (const tempFilePath of tempFilePaths) {
+      deleteTempFile(tempFilePath);
+    }
+
+    res.json({
+      success: true,
+      message: '분석 결과가 성공적으로 저장되었습니다.',
+      history_id: history_id
+    });
+
+  } catch (error) {
+    console.error('분석 결과 저장 오류:', error);
+    
+    // 임시 파일 삭제
+    for (const tempFilePath of tempFilePaths) {
+      deleteTempFile(tempFilePath);
+    }
+
+    res.status(500).json({
+      success: false,
+      error: '분석 결과 저장 중 오류가 발생했습니다: ' + error.message
     });
   }
 });
