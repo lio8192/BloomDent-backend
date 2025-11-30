@@ -434,4 +434,63 @@ router.get('/categories', (req, res) => {
   });
 });
 
+// 꺽은선 그래프용 점수 이력 조회
+router.get('/user/:userId/chart', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // 사용자 확인
+    const [users] = await pool.query(
+      'SELECT id, name FROM users WHERE id = ?',
+      [userId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: '사용자를 찾을 수 없습니다.'
+      });
+    }
+
+    // score_history에서 total_score와 created_at 조회 (시간순 오름차순)
+    const [history] = await pool.query(
+      `SELECT 
+        total_score,
+        created_at
+       FROM score_history 
+       WHERE user_id = ?
+       ORDER BY created_at ASC`,
+      [userId]
+    );
+
+    // 그래프용 데이터 포맷팅
+    const chartData = history.map(item => {
+      const date = new Date(item.created_at);
+      return {
+        date: date.toISOString().split('T')[0], // YYYY-MM-DD 형식
+        total_score: parseFloat(item.total_score),
+        timestamp: date.toISOString() // 전체 타임스탬프
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        user_id: parseInt(userId),
+        user_name: users[0].name,
+        chart_data: chartData,
+        count: chartData.length
+      }
+    });
+
+  } catch (error) {
+    console.error('그래프 데이터 조회 오류:', error);
+    res.status(500).json({
+      success: false,
+      message: '그래프 데이터 조회 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;
