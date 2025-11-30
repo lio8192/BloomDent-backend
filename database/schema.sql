@@ -98,12 +98,14 @@ CREATE TABLE IF NOT EXISTS dental_images (
   position ENUM('upper', 'lower', 'front') COMMENT '치아 위치(윗니/아랫니/앞니)',
   image_type VARCHAR(50) DEFAULT 'other' COMMENT '이미지 타입',
   analysis_status ENUM('pending', 'processing', 'completed', 'failed') DEFAULT 'pending' COMMENT '분석 상태',
+  history_id VARCHAR(100) COMMENT '히스토리 ID (3개 사진 세트 식별자)',
   uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
   INDEX idx_user_id (user_id),
   INDEX idx_status (analysis_status),
   INDEX idx_position (position),
-  INDEX idx_image_type (image_type)
+  INDEX idx_image_type (image_type),
+  INDEX idx_history_id (history_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='치아 사진';
 
 -- 8. 사진 분석 결과 테이블
