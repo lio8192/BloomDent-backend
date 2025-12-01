@@ -232,48 +232,61 @@ async function processBatchAIAnalysis(historyId, images) {
   try {
     console.log(`🔄 [History ${historyId}] 일괄 AI 분석 시작...`);
 
-    // 요청 형식에 맞게 이미지 데이터 구성
-    const imagesPayload = images.map((img) => ({
-      image_type: img.position, // position 값을 image_type으로 매핑
-      cloudinary_url: img.cloudinary_url,
-    }));
+    // DB에서 가져온 images: [{ position: 'upper', cloudinary_url: '...' }, ...]
+    // → upper/lower/front 키로 묶어서 보냄
+    const imagesByPosition = {
+      upper: null,
+      lower: null,
+      front: null,
+    };
+
+    for (const img of images) {
+      if (!img.position || !imagesByPosition.hasOwnProperty(img.position)) {
+        continue;
+      }
+
+      imagesByPosition[img.position] = {
+        // Flask 쪽이 쓰던 형식에 최대한 맞춰줌
+        image_type: img.position, // 'upper' | 'lower' | 'front'
+        cloudinary_url: img.cloudinary_url, // 실제 이미지 URL
+      };
+    }
 
     const requestPayload = {
       history_id: historyId,
-      images: imagesPayload,
+      images: imagesByPosition, // <- 배열이 아니라 객체
     };
 
     console.log(
       `📤 [History ${historyId}] 일괄 분석 요청 전송:`,
-      requestPayload
+      JSON.stringify(requestPayload, null, 2)
     );
 
-    // Flask AI 서버로 일괄 분석 요청
     const aiResponse = await axios.post(
       `${AI_SERVER_URL}/api/analyze-batch`,
       requestPayload,
       {
-        timeout: 120000, // 120초 타임아웃 (3개 이미지 분석이므로 더 길게)
+        timeout: 120000, // 120초
+        headers: {
+          "Content-Type": "application/json",
+        },
       }
     );
 
     console.log(`✅ [History ${historyId}] 일괄 AI 분석 요청 전송 완료`);
 
-    if (aiResponse.data.success) {
-      // success: true는 AI 서버가 데이터를 잘 받았다는 의미일 뿐
-      // 실제 분석 완료는 /api/analyze-result 엔드포인트에서 처리됨
+    if (aiResponse.data && aiResponse.data.success) {
       console.log(
         `📥 [History ${historyId}] AI 서버가 분석 요청을 수신했습니다. 결과 대기 중...`
       );
     } else {
-      // 분석 요청 실패 시 상태를 failed로 변경
       await pool.query(
         'UPDATE dental_images SET analysis_status = "failed" WHERE history_id = ?',
         [historyId]
       );
       console.error(
         `❌ [History ${historyId}] AI 분석 요청 실패:`,
-        aiResponse.data.error
+        aiResponse.data?.error || "Unknown error"
       );
     }
   } catch (error) {
@@ -282,7 +295,6 @@ async function processBatchAIAnalysis(historyId, images) {
       error.message
     );
 
-    // 에러 발생 시 해당 history_id의 모든 이미지 상태를 failed로 변경
     await pool.query(
       'UPDATE dental_images SET analysis_status = "failed" WHERE history_id = ?',
       [historyId]
