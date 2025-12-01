@@ -7,7 +7,7 @@ const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-
+const pendingGeminiSummaries = new Set(); // Gemini 요약 중복 방지용 세트
 // AI 서버 URL (환경 변수에서 가져오기)
 const AI_SERVER_URL = process.env.AI_SERVER_URL || "http://localhost:5000";
 
@@ -720,20 +720,54 @@ router.post(
         deleteTempFile(tempFilePath);
       }
       // Flask에서 3장 모두 분석하면, Node 내부에서 Gemini 요약 API 자동 호출
-      try {
-        const NODE_PORT = process.env.PORT || 3000; // .env에 맞춰 사용
+      // Flask에서 3장 모두 분석하면, Node 내부에서 Gemini 요약 API 자동 호출
+      // 같은 history_id 에 대해 중복 호출되지 않도록 가드
+      if (userId && history_id) {
+        if (pendingGeminiSummaries.has(history_id)) {
+          console.log(
+            `⏭ [History ${history_id}] Gemini 요약은 이미 진행 중이므로 재호출 스킵`
+          );
+        } else {
+          pendingGeminiSummaries.add(history_id);
 
-        await axios.post(
-          `http://localhost:${NODE_PORT}/api/ai/image-analysis`,
-          {
-            user_id: userId,
-            history_id: history_id,
-          },
-          { timeout: 60000 }
+          (async () => {
+            try {
+              const NODE_PORT = process.env.PORT || 3000; // .env에 맞춰 사용
+
+              const resp = await axios.post(
+                `http://localhost:${NODE_PORT}/api/ai/image-analysis`,
+                {
+                  user_id: userId,
+                  history_id: history_id,
+                },
+                { timeout: 60000 }
+              );
+
+              console.log(
+                `🤖 [History ${history_id}] Gemini LLM 요약 생성 완료`,
+                resp.status
+              );
+            } catch (err) {
+              // 429는 quota/rate limit 이슈이므로 별도 로그
+              if (err.response?.status === 429) {
+                console.error(
+                  `❌ [History ${history_id}] Gemini 요약 실패 - 429 (요청 한도 초과)`
+                );
+              } else {
+                console.error(
+                  `❌ [History ${history_id}] Gemini 요약 실패:`,
+                  err.message
+                );
+              }
+            } finally {
+              pendingGeminiSummaries.delete(history_id);
+            }
+          })();
+        }
+      } else {
+        console.log(
+          `⚠️ [History ${history_id}] userId 또는 history_id 가 없어 Gemini 요약을 호출하지 않습니다.`
         );
-        console.log(`🤖 Gemini LLM 요약 생성 완료 (history_id=${history_id})`);
-      } catch (err) {
-        console.error(`❌ Gemini 요약 생성 실패:`, err.message);
       }
       res.json({
         success: true,
