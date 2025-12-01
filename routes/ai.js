@@ -397,7 +397,7 @@ router.post("/image-analysis", async (req, res) => {
       history_id: r.history_id,
       image_type: r.image_type, // upper/lower/front
       cloudinary_url: r.cloudinary_url,
-      result_cloudinary_url: r.result_cloudinary_url,
+      analyzed_image_url: r.analyzed_image_url,
       uploaded_at: r.uploaded_at,
       analyzed_at: r.analyzed_at,
       analysis_status: r.analysis_status,
@@ -544,7 +544,7 @@ router.get("/image-analysis/history/:historyId", async (req, res) => {
         user_id,
         history_id,
         cloudinary_url,
-        result_cloudinary_url,
+        analyzed_image_url,
         image_type,
         uploaded_at,
         analyzed_at,
@@ -608,7 +608,7 @@ router.get("/image-analysis/history/:historyId", async (req, res) => {
       history_id: r.history_id,
       image_type: r.image_type, // 'upper' | 'lower' | 'front'
       cloudinary_url: r.cloudinary_url,
-      result_cloudinary_url: r.result_cloudinary_url,
+      analyzed_image_url: r.analyzed_image_url,
       uploaded_at: r.uploaded_at,
       analyzed_at: r.analyzed_at,
       analysis_status: r.analysis_status,
