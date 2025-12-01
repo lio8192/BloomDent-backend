@@ -232,76 +232,88 @@ async function processBatchAIAnalysis(historyId, images) {
   try {
     console.log(`🔄 [History ${historyId}] 일괄 AI 분석 시작...`);
 
-    // DB에서 가져온 images: [{ position: 'upper', cloudinary_url: '...' }, ...]
-    // → upper/lower/front 키로 묶어서 보냄
-    const imagesByPosition = {
-      upper: null,
-      lower: null,
-      front: null,
-    };
+    // 1) DB에서 가져온 rows를 position별로 1장씩만 매핑
+    const byPosition = { upper: null, front: null, lower: null };
 
     for (const img of images) {
-      if (!img.position || !imagesByPosition.hasOwnProperty(img.position)) {
-        continue;
+      const pos = img.position;
+      if (pos && byPosition.hasOwnProperty(pos) && !byPosition[pos]) {
+        byPosition[pos] = img;
       }
-
-      imagesByPosition[img.position] = {
-        // Flask 쪽이 쓰던 형식에 최대한 맞춰줌
-        image_type: img.position, // 'upper' | 'lower' | 'front'
-        cloudinary_url: img.cloudinary_url, // 실제 이미지 URL
-      };
     }
+
+    // 2) 세 장이 다 안 모였으면 그냥 로그만 찍고 리턴
+    if (!byPosition.upper || !byPosition.front || !byPosition.lower) {
+      console.warn(
+        `⚠️ [History ${historyId}] upper/front/lower 3장이 모두 존재하지 않습니다.`,
+        byPosition
+      );
+      return;
+    }
+
+    // 3) 명세서 그대로 payload 구성 (순서: upper, front, lower)
+    const imagesPayload = ["upper", "front", "lower"].map((pos) => ({
+      image_type: pos,
+      cloudinary_url: byPosition[pos].cloudinary_url,
+    }));
 
     const requestPayload = {
       history_id: historyId,
-      images: imagesByPosition, // <- 배열이 아니라 객체
+      images: imagesPayload,
     };
 
     console.log(
-      `📤 [History ${historyId}] 일괄 분석 요청 전송:`,
+      `📤 [History ${historyId}] 일괄 분석 요청 전송 payload:`,
       JSON.stringify(requestPayload, null, 2)
     );
 
+    // 4) Flask로 전송 (명세서 권장: JSON + 적당한 timeout)
     const aiResponse = await axios.post(
       `${AI_SERVER_URL}/api/analyze-batch`,
       requestPayload,
       {
-        timeout: 120000, // 120초
+        timeout: 180000, // 3분 권장
         headers: {
           "Content-Type": "application/json",
         },
+        // Flask가 multipart stream을 바로 돌려주는 구조라면 이 옵션도 가능
+        // responseType: "stream",
       }
     );
 
-    console.log(`✅ [History ${historyId}] 일괄 AI 분석 요청 전송 완료`);
+    console.log(
+      `✅ [History ${historyId}] 일괄 AI 분석 요청 전송 완료`,
+      aiResponse.status
+    );
 
-    if (aiResponse.data && aiResponse.data.success) {
-      console.log(
-        `📥 [History ${historyId}] AI 서버가 분석 요청을 수신했습니다. 결과 대기 중...`
+    // 이 부분은 기존 주석 그대로 유지
+    if (aiResponse.data && aiResponse.data.success === false) {
+      console.error(
+        `❌ [History ${historyId}] AI 분석 요청 실패 응답:`,
+        aiResponse.data.error
       );
-    } else {
       await pool.query(
         'UPDATE dental_images SET analysis_status = "failed" WHERE history_id = ?',
         [historyId]
       );
-      console.error(
-        `❌ [History ${historyId}] AI 분석 요청 실패:`,
-        aiResponse.data?.error || "Unknown error"
+    } else {
+      console.log(
+        `📥 [History ${historyId}] AI 서버가 분석 요청을 수신했습니다. 결과 대기 중...`
       );
     }
   } catch (error) {
     console.error(
       `❌ [History ${historyId}] 일괄 AI 분석 실패:`,
-      error.message
+      error.response?.data || error.message
     );
 
+    // 에러 발생 시 해당 history_id의 모든 이미지 상태를 failed로 변경
     await pool.query(
       'UPDATE dental_images SET analysis_status = "failed" WHERE history_id = ?',
       [historyId]
     );
   }
 }
-
 // 사용자의 이미지 목록 조회
 router.get("/user/:userId", async (req, res) => {
   try {
