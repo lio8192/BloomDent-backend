@@ -345,7 +345,7 @@ router.post("/image-analysis", async (req, res) => {
         history_id,
         image_type,           -- 'upper' | 'lower' | 'front'
         cloudinary_url,
-        result_cloudinary_url,
+        analyzed_image_url,
         uploaded_at,
         analyzed_at,
         analysis_status,
