@@ -598,7 +598,7 @@ router.get("/image-analysis/history/:historyId", async (req, res) => {
         return JSON.parse(value);
       } catch (e) {
         console.warn("llm_summary JSON parse error:", e);
-        return null;
+        return value; // 원본 문자열 반환
       }
     };
 
