@@ -322,25 +322,10 @@ ${JSON.stringify(responses, null, 2)}
 
 // -----------------------------------------------------
 // 3) 구강 사진 분석 결과 → Gemini 요약/해석 + DB 업데이트
-//    (3장 upper/lower/front가 모두 저장된 뒤 호출)
 // POST /api/ai/image-analysis
+// body: { user_id, history_id }
 // -----------------------------------------------------
 router.post("/image-analysis", async (req, res) => {
-  /**
-   * 기대하는 req.body 형식:
-   * {
-   *   "user_id": 8,
-   *   "history_id": "bffb121f-316f-4169-9030-58dd29af2de2"
-   * }
-   *
-   * 전제:
-   * - Flask/YOLO 서버가 이미 /images/analyze-result 를 통해
-   *   image_analysis 테이블에 upper/lower/front 3장의 row를
-   *   analysis_status = 'completed' 상태로 저장해 둔 상황
-   * - 이 API는 그 3개 row를 읽어서 Gemini에 요약을 의뢰하고,
-   *   각 row의 llm_summary 컬럼을 서로 다른 내용으로 업데이트한다.
-   */
-
   const { user_id, history_id } = req.body;
 
   if (!user_id || !history_id) {
@@ -351,16 +336,16 @@ router.post("/image-analysis", async (req, res) => {
   }
 
   try {
-    // 1) 해당 user_id + history_id 의 분석 완료된 3장 조회
+    // 1) 해당 user + history 에 대한 3장(upper/lower/front) 조회
     const [rows] = await pool.query(
       `
       SELECT
         id,
         user_id,
         history_id,
+        image_type,           -- 'upper' | 'lower' | 'front'
         cloudinary_url,
         result_cloudinary_url,
-        image_type,
         uploaded_at,
         analyzed_at,
         analysis_status,
@@ -371,13 +356,10 @@ router.post("/image-analysis", async (req, res) => {
         cavity_comment,
         overall_score,
         recommendations,
-        ai_confidence,
-        llm_summary
+        ai_confidence
       FROM image_analysis
       WHERE user_id = ?
         AND history_id = ?
-        AND analysis_status = 'completed'
-        AND image_type IN ('upper', 'lower', 'front')
       ORDER BY
         CASE image_type
           WHEN 'upper' THEN 1
@@ -390,39 +372,14 @@ router.post("/image-analysis", async (req, res) => {
       [user_id, history_id]
     );
 
-    if (rows.length < 3) {
-      return res.status(400).json({
+    if (rows.length === 0) {
+      return res.status(404).json({
         success: false,
-        message:
-          "upper / lower / front 3장의 분석 결과가 모두 저장되지 않았습니다.",
+        message: "해당 history_id에 대한 분석 결과가 없습니다.",
       });
     }
 
-    // 이미 llm_summary 가 모두 존재하면 재생성하지 않고 그대로 반환할 수도 있음
-    const alreadyHasAllSummary = rows.every(
-      (r) => r.llm_summary && r.llm_summary.trim() !== ""
-    );
-    if (alreadyHasAllSummary) {
-      const parsed = {};
-      for (const r of rows) {
-        try {
-          parsed[r.image_type] = JSON.parse(r.llm_summary);
-        } catch (e) {
-          parsed[r.image_type] = null;
-        }
-      }
-      return res.json({
-        success: true,
-        message: "이미 요약이 존재하여 재생성하지 않았습니다.",
-        data: {
-          history_id,
-          user_id,
-          summaries: parsed,
-        },
-      });
-    }
-
-    // cavity_locations JSON 파싱 유틸
+    // cavity_locations JSON 파싱
     const parseLocations = (value) => {
       if (!value) return [];
       try {
@@ -434,122 +391,129 @@ router.post("/image-analysis", async (req, res) => {
       }
     };
 
-    // 2) Gemini에게 전달할 payload 구성
-    const imagesPayload = rows.map((r) => ({
-      image_type: r.image_type, // 'upper' | 'lower' | 'front'
+    const records = rows.map((r) => ({
+      id: r.id,
+      user_id: r.user_id,
+      history_id: r.history_id,
+      image_type: r.image_type, // upper/lower/front
       cloudinary_url: r.cloudinary_url,
       result_cloudinary_url: r.result_cloudinary_url,
+      uploaded_at: r.uploaded_at,
+      analyzed_at: r.analyzed_at,
+      analysis_status: r.analysis_status,
       occlusion_status: r.occlusion_status,
       occlusion_comment: r.occlusion_comment,
       cavity_detected: !!r.cavity_detected,
       cavity_locations: parseLocations(r.cavity_locations),
       cavity_comment: r.cavity_comment,
       overall_score: r.overall_score !== null ? Number(r.overall_score) : null,
-      ai_confidence: r.ai_confidence !== null ? Number(r.ai_confidence) : null,
       recommendations: r.recommendations,
+      ai_confidence: r.ai_confidence !== null ? Number(r.ai_confidence) : null,
     }));
 
-    const geminiPrompt = `
+    // upper / lower / front 분리
+    const upper = records.find((r) => r.image_type === "upper") || null;
+    const lower = records.find((r) => r.image_type === "lower") || null;
+    const front = records.find((r) => r.image_type === "front") || null;
+
+    // 2) Gemini에 줄 프롬프트 작성
+    const prompt = `
 당신은 전문 치과의사 AI입니다.
-아래는 한 사용자의 윗니(upper), 아랫니(lower), 앞니(front)에 대한
-AI 분석 결과입니다. 각 부위별로 별도의 요약과 조언을 작성해 주세요.
 
-- upper / lower / front 각각에 대해:
-  - "summary": 한국어 한 단락 요약 (2~3문장)
-  - "risk_factors": 위험 요인 배열 (각 항목은 짧게)
-  - "care_tips": 구체적인 관리 팁 배열 (각 항목은 행동 중심 문장)
+아래는 한 사용자의 윗니(upper), 아랫니(lower), 앞니(front) 사진에 대한
+AI 분석 결과(교합 상태, 충치 위치, 점수 등)입니다.
+각 부위별로 **서로 다른 요약**을 작성해 주세요.
 
-또한 전체 구강 상태에 대한 간단한 종합 결론도 포함해 주세요.
+요구 사항:
+1. upper / lower / front 각각에 대해
+   - 2~3문장 정도의 한국어 요약을 작성합니다.
+   - 내용은 교합 상태, 충치 개수/위치, 전반적 상태를 간단히 정리합니다.
+2. 전체 구강 상태에 대한 종합 요약(overall_summary)도 3~4문장 정도로 작성합니다.
+3. 말투는 정중한 한국어입니다.
+4. 반드시 아래 JSON 형식만 출력하고, 마크다운(\`\`\`)이나 설명 문장은 넣지 마세요.
 
-분석 데이터(JSON):
+분석 원본 데이터(JSON):
 ${JSON.stringify(
   {
-    history_id,
     user_id,
-    images: imagesPayload,
+    history_id,
+    records,
   },
   null,
   2
 )}
 
-반드시 아래 JSON 형식(예시)만 출력하세요.
-마크다운 코드블록(\`\`\`)이나 설명 문장 없이, 순수 JSON 객체만 응답하세요.
+출력 형식(JSON):
 
 {
-  "upper": {
-    "summary": "윗니에 대한 2~3문장 요약",
-    "risk_factors": ["위험 요인 1", "위험 요인 2"],
-    "care_tips": ["관리 팁 1", "관리 팁 2"]
-  },
-  "lower": {
-    "summary": "아랫니에 대한 2~3문장 요약",
-    "risk_factors": ["위험 요인 1", "위험 요인 2"],
-    "care_tips": ["관리 팁 1", "관리 팁 2"]
-  },
-  "front": {
-    "summary": "앞니에 대한 2~3문장 요약",
-    "risk_factors": ["위험 요인 1", "위험 요인 2"],
-    "care_tips": ["관리 팁 1", "관리 팁 2"]
-  },
-  "overall_summary": "전체 구강 상태에 대한 한 단락 요약",
-  "overall_risk_level": "경미 | 보통 | 심각 중 하나의 단어"
+  "upper_summary": "윗니에 대한 2~3문장 요약 (없으면 빈 문자열)",
+  "lower_summary": "아랫니에 대한 2~3문장 요약 (없으면 빈 문자열)",
+  "front_summary": "앞니에 대한 2~3문장 요약 (없으면 빈 문자열)",
+  "overall_summary": "전체 구강 상태 종합 요약 (3~4문장)"
 }
     `;
 
-    const geminiResult = await ai.models.generateContent({
+    const result = await ai.models.generateContent({
       model: "gemini-2.0-flash",
-      contents: [{ role: "user", parts: [{ text: geminiPrompt }] }],
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
-        responseMimeType: "application/json",
+        responseMimeType: "application/json", // JSON만 받도록 힌트
       },
     });
 
-    const geminiText = geminiResult.text || "";
-    const summaryJson = parseGeminiJsonOrThrow(
-      geminiText,
-      "image-analysis-summary"
-    );
+    const text = result.text || "";
+    const summaryJson = parseGeminiJsonOrThrow(text, "image-analysis-summary");
 
-    // 3) 각 image_type(upper/lower/front)별로 서로 다른 요약을 llm_summary에 저장
-    const positions = ["upper", "lower", "front"];
-    for (const pos of positions) {
-      const summaryForPos = summaryJson[pos];
-      if (!summaryForPos) continue;
+    const {
+      upper_summary = "",
+      lower_summary = "",
+      front_summary = "",
+      overall_summary = "",
+    } = summaryJson;
 
+    // 3) DB 업데이트: 각 행의 llm_summary 채우기
+    //    (ai_confidence, analyzed_at 은 여기서 건드리지 않고,
+    //     필요하다면 analyzed_at 을 NOW()로 덮어쓸 수도 있음)
+    const updateOne = async (image_type, summary) => {
+      if (!summary || !summary.trim()) return;
       await pool.query(
         `
         UPDATE image_analysis
-        SET llm_summary = ?
+        SET llm_summary = ?,
+            -- analyzed_at 이 NULL 이면 현재 시각으로 채움 (선택)
+            analyzed_at = COALESCE(analyzed_at, CURRENT_TIMESTAMP)
         WHERE user_id = ?
           AND history_id = ?
           AND image_type = ?
         `,
-        [JSON.stringify(summaryForPos), user_id, history_id, pos]
+        [summary.trim(), user_id, history_id, image_type]
       );
-    }
+    };
 
-    // (원하면 overall_summary / overall_risk_level은
-    //  별도의 history용 테이블이나 컬럼에 저장 가능. 여기선 응답만.)
+    await updateOne("upper", upper_summary);
+    await updateOne("lower", lower_summary);
+    await updateOne("front", front_summary);
+
+    // (원한다면 overall_summary 를 별도 컬럼에 넣거나,
+    //  세 행 중 하나(예: front)에 넣는 것도 가능)
+
     return res.json({
       success: true,
-      message: "3장 구강 사진에 대한 Gemini 요약이 저장되었습니다.",
+      message: "LLM 요약이 성공적으로 생성 및 저장되었습니다.",
       data: {
         history_id,
         user_id,
-        summaries: {
-          upper: summaryJson.upper || null,
-          lower: summaryJson.lower || null,
-          front: summaryJson.front || null,
-        },
-        overall_summary: summaryJson.overall_summary || null,
-        overall_risk_level: summaryJson.overall_risk_level || null,
+        upper_summary,
+        lower_summary,
+        front_summary,
+        overall_summary,
       },
     });
   } catch (error) {
-    console.error("image-analysis summary AI error:", error);
+    console.error("POST /api/ai/image-analysis error:", error);
     return res.status(500).json({
       success: false,
-      message: "구강 사진 요약 처리 중 오류가 발생했습니다.",
+      message: "구강 사진 LLM 요약 처리 중 오류가 발생했습니다.",
       error: IS_DEV ? error.message : undefined,
     });
   }
