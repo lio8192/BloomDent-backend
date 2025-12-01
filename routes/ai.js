@@ -321,228 +321,235 @@ ${JSON.stringify(responses, null, 2)}
 });
 
 // -----------------------------------------------------
-// 3) 구강 사진 분석 결과 → Gemini 요약/해석 + DB 저장
+// 3) 구강 사진 분석 결과 → Gemini 요약/해석 + DB 업데이트
+//    (3장 upper/lower/front가 모두 저장된 뒤 호출)
 // POST /api/ai/image-analysis
 // -----------------------------------------------------
 router.post("/image-analysis", async (req, res) => {
   /**
-   * 기대하는 req.body 형식 (Flask 서버에서 받은 그대로 전달):
+   * 기대하는 req.body 형식:
    * {
-   *   "success": true,
-   *   "data": {
-   *     "history_id": "bd_2025_11_30_001",   // 3장(upper/lower/front)을 묶는 id
-   *     "image_id": 123,                     // (DB에는 안 쓰고 raw_response에만 저장)
-   *     "user_id": 8,
-   *     "image_type": "upper",               // 'upper' | 'lower' | 'front'
-   *     "uploaded_at": "2025-11-30T10:00:00",
-   *     "analyzed_at": "2025-11-30T10:00:30",
-   *     "cloudinary_url": "https://.../original.jpg",
-   *     "result_cloudinary_url": "https://.../result.jpg",
-   *     "analysis": {
-   *       "occlusion_status": "보통",
-   *       "cavity_detected": true,
-   *       "cavity_locations": [16, 27],
-   *       "overall_score": 75,
-   *       "ai_confidence": 92.5,
-   *       "comments": {
-   *         "occlusion": "약간의 부정교합이 보입니다.",
-   *         "cavity": "충치가 2개 발견되었습니다.",
-   *         "recommendation": "가까운 치과 방문을 권장합니다."
-   *       }
-   *     }
-   *   }
+   *   "user_id": 8,
+   *   "history_id": "bffb121f-316f-4169-9030-58dd29af2de2"
    * }
+   *
+   * 전제:
+   * - Flask/YOLO 서버가 이미 /images/analyze-result 를 통해
+   *   image_analysis 테이블에 upper/lower/front 3장의 row를
+   *   analysis_status = 'completed' 상태로 저장해 둔 상황
+   * - 이 API는 그 3개 row를 읽어서 Gemini에 요약을 의뢰하고,
+   *   각 row의 llm_summary 컬럼을 서로 다른 내용으로 업데이트한다.
    */
 
-  const flaskResult = req.body;
+  const { user_id, history_id } = req.body;
 
-  if (!flaskResult || !flaskResult.data) {
+  if (!user_id || !history_id) {
     return res.status(400).json({
       success: false,
-      message:
-        "Flask 서버에서 전달된 분석 결과(JSON)가 없습니다. body.data 를 확인해 주세요.",
-    });
-  }
-
-  const d = flaskResult.data;
-  const {
-    image_id, // DB에는 직접 안 넣고 raw_response에만 보관
-    user_id,
-    image_type,
-    uploaded_at,
-    analyzed_at,
-    cloudinary_url,
-    result_cloudinary_url,
-  } = d;
-
-  // history_id는 data 안에 있거나 최상단에 있을 수 있도록 둘 다 지원
-  const history_id = d.history_id || flaskResult.history_id || null;
-
-  if (!user_id || !history_id || !image_type) {
-    return res.status(400).json({
-      success: false,
-      message: "user_id, history_id, image_type 는 필수입니다.",
+      message: "user_id와 history_id는 필수입니다.",
     });
   }
 
   try {
-    // 1) Gemini 프롬프트 구성 (질문에서 주신 형식 그대로, Flask 결과를 통째로 넣음)
-    const prompt = `
+    // 1) 해당 user_id + history_id 의 분석 완료된 3장 조회
+    const [rows] = await pool.query(
+      `
+      SELECT
+        id,
+        user_id,
+        history_id,
+        cloudinary_url,
+        result_cloudinary_url,
+        image_type,
+        uploaded_at,
+        analyzed_at,
+        analysis_status,
+        occlusion_status,
+        occlusion_comment,
+        cavity_detected,
+        cavity_locations,
+        cavity_comment,
+        overall_score,
+        recommendations,
+        ai_confidence,
+        llm_summary
+      FROM image_analysis
+      WHERE user_id = ?
+        AND history_id = ?
+        AND analysis_status = 'completed'
+        AND image_type IN ('upper', 'lower', 'front')
+      ORDER BY
+        CASE image_type
+          WHEN 'upper' THEN 1
+          WHEN 'lower' THEN 2
+          WHEN 'front' THEN 3
+          ELSE 99
+        END,
+        id ASC
+      `,
+      [user_id, history_id]
+    );
+
+    if (rows.length < 3) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "upper / lower / front 3장의 분석 결과가 모두 저장되지 않았습니다.",
+      });
+    }
+
+    // 이미 llm_summary 가 모두 존재하면 재생성하지 않고 그대로 반환할 수도 있음
+    const alreadyHasAllSummary = rows.every(
+      (r) => r.llm_summary && r.llm_summary.trim() !== ""
+    );
+    if (alreadyHasAllSummary) {
+      const parsed = {};
+      for (const r of rows) {
+        try {
+          parsed[r.image_type] = JSON.parse(r.llm_summary);
+        } catch (e) {
+          parsed[r.image_type] = null;
+        }
+      }
+      return res.json({
+        success: true,
+        message: "이미 요약이 존재하여 재생성하지 않았습니다.",
+        data: {
+          history_id,
+          user_id,
+          summaries: parsed,
+        },
+      });
+    }
+
+    // cavity_locations JSON 파싱 유틸
+    const parseLocations = (value) => {
+      if (!value) return [];
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        console.warn("cavity_locations JSON parse error:", e);
+        return [];
+      }
+    };
+
+    // 2) Gemini에게 전달할 payload 구성
+    const imagesPayload = rows.map((r) => ({
+      image_type: r.image_type, // 'upper' | 'lower' | 'front'
+      cloudinary_url: r.cloudinary_url,
+      result_cloudinary_url: r.result_cloudinary_url,
+      occlusion_status: r.occlusion_status,
+      occlusion_comment: r.occlusion_comment,
+      cavity_detected: !!r.cavity_detected,
+      cavity_locations: parseLocations(r.cavity_locations),
+      cavity_comment: r.cavity_comment,
+      overall_score: r.overall_score !== null ? Number(r.overall_score) : null,
+      ai_confidence: r.ai_confidence !== null ? Number(r.ai_confidence) : null,
+      recommendations: r.recommendations,
+    }));
+
+    const geminiPrompt = `
 당신은 전문 치과의사 AI입니다.
+아래는 한 사용자의 윗니(upper), 아랫니(lower), 앞니(front)에 대한
+AI 분석 결과입니다. 각 부위별로 별도의 요약과 조언을 작성해 주세요.
 
-아래는 사용자의 구강 충치, 교합 사진 분석 결과 json을 바탕으로 유저의 구강 충치, 교합 사진 분석 결과를 JSON화하고, 위험요인, 개선해야 할 습관을 한국어로 정중하게 작성하세요.
+- upper / lower / front 각각에 대해:
+  - "summary": 한국어 한 단락 요약 (2~3문장)
+  - "risk_factors": 위험 요인 배열 (각 항목은 짧게)
+  - "care_tips": 구체적인 관리 팁 배열 (각 항목은 행동 중심 문장)
 
-분석 결과(JSON):
-${JSON.stringify(flaskResult, null, 2)}
+또한 전체 구강 상태에 대한 간단한 종합 결론도 포함해 주세요.
 
-반드시 아래 JSON 형식만 출력하세요.
+분석 데이터(JSON):
+${JSON.stringify(
+  {
+    history_id,
+    user_id,
+    images: imagesPayload,
+  },
+  null,
+  2
+)}
+
+반드시 아래 JSON 형식(예시)만 출력하세요.
 마크다운 코드블록(\`\`\`)이나 설명 문장 없이, 순수 JSON 객체만 응답하세요.
 
-JSON 형식
-
 {
-  "success": true,
-  "data": {
-    "image_id": 123,
-    "user_id": "user123",
-    "image_type": "upper",
-    "uploaded_at": "2025-11-30T10:00:00",
-    "analyzed_at": "2025-11-30T10:00:30",
-
-    "cloudinary_url": "https://.../original.jpg",
-    "result_cloudinary_url": "https://.../result.jpg",
-
-    "analysis": {
-      "occlusion_status": "보통",
-      "cavity_detected": true,
-      "cavity_locations": [16, 27],
-      "overall_score": 75,
-      "ai_confidence": 92.5,
-      "comments": {
-        "occlusion": "부정교합 분석 결과 20자 이내",
-        "cavity": "충치분석 결과 20자 이내",
-        "recommendation": "분석 결과에 따른 추천 관리 방법"
-      }
-    }
-  }
+  "upper": {
+    "summary": "윗니에 대한 2~3문장 요약",
+    "risk_factors": ["위험 요인 1", "위험 요인 2"],
+    "care_tips": ["관리 팁 1", "관리 팁 2"]
+  },
+  "lower": {
+    "summary": "아랫니에 대한 2~3문장 요약",
+    "risk_factors": ["위험 요인 1", "위험 요인 2"],
+    "care_tips": ["관리 팁 1", "관리 팁 2"]
+  },
+  "front": {
+    "summary": "앞니에 대한 2~3문장 요약",
+    "risk_factors": ["위험 요인 1", "위험 요인 2"],
+    "care_tips": ["관리 팁 1", "관리 팁 2"]
+  },
+  "overall_summary": "전체 구강 상태에 대한 한 단락 요약",
+  "overall_risk_level": "경미 | 보통 | 심각 중 하나의 단어"
 }
     `;
 
-    const result = await ai.models.generateContent({
+    const geminiResult = await ai.models.generateContent({
       model: "gemini-2.0-flash",
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      contents: [{ role: "user", parts: [{ text: geminiPrompt }] }],
       generationConfig: {
-        // JSON만 받도록 힌트
         responseMimeType: "application/json",
       },
     });
 
-    const text = result.text || "";
-    const aiJson = parseGeminiJsonOrThrow(text, "image-analysis");
-
-    // --------------------------------------------------
-    // 2) Gemini 응답에서 실제 분석 데이터 추출
-    //    (위 프롬프트에서 정의한 구조를 기준으로 파싱)
-    // --------------------------------------------------
-    const aiData = aiJson.data || {};
-    const analysis = aiData.analysis || {};
-    const comments = analysis.comments || {};
-
-    // image_analysis 테이블 스키마에 맞는 값 매핑
-    const analysis_status = "completed"; // 단순 상태값, 필요 시 변경
-    const occlusion_status = analysis.occlusion_status || null;
-    const cavity_detected = analysis.cavity_detected ? 1 : 0;
-    const cavity_locations = Array.isArray(analysis.cavity_locations)
-      ? JSON.stringify(analysis.cavity_locations)
-      : JSON.stringify([]);
-    const overall_score = analysis.overall_score ?? null;
-    const ai_confidence = analysis.ai_confidence ?? null;
-
-    const occlusion_comment = comments.occlusion || null;
-    const cavity_comment = comments.cavity || null;
-    const recommendations = comments.recommendation || null;
-
-    // --------------------------------------------------
-    // 3) DB 저장 (image_analysis 스키마에 맞게 INSERT)
-    //    컬럼 목록:
-    //    id (PK, auto inc)
-    //    user_id (int)
-    //    history_id (varchar)
-    //    cloudinary_url (text)
-    //    image_type (varchar)
-    //    uploaded_at (timestamp)
-    //    analysis_status (varchar)
-    //    occlusion_status (varchar)
-    //    occlusion_comment (text)
-    //    cavity_detected (tinyint)
-    //    cavity_locations (longtext)
-    //    cavity_comment (text)
-    //    overall_score (decimal)
-    //    recommendations (text)
-    //    ai_confidence (decimal)
-    //    raw_response (longtext)
-    //    result_cloudinary_url (text)
-    //    analyzed_at (timestamp)
-    // --------------------------------------------------
-
-    await pool.query(
-      `
-      INSERT INTO image_analysis (
-        user_id,
-        history_id,
-        cloudinary_url,
-        image_type,
-        uploaded_at,
-        analysis_status,
-        occlusion_status,
-        occlusion_comment,
-        cavity_detected,
-        cavity_locations,
-        cavity_comment,
-        overall_score,
-        recommendations,
-        ai_confidence,
-        raw_response,
-        result_cloudinary_url,
-        analyzed_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        user_id,
-        history_id,
-        cloudinary_url || null,
-        image_type || null,
-        uploaded_at || null,
-        analysis_status,
-        occlusion_status,
-        occlusion_comment,
-        cavity_detected,
-        cavity_locations,
-        cavity_comment,
-        overall_score,
-        recommendations,
-        ai_confidence,
-        JSON.stringify({
-          flask_result: flaskResult,
-          gemini_result: aiJson,
-          image_id_from_flask: image_id ?? null,
-        }),
-        result_cloudinary_url || null,
-        analyzed_at || null,
-      ]
+    const geminiText = geminiResult.text || "";
+    const summaryJson = parseGeminiJsonOrThrow(
+      geminiText,
+      "image-analysis-summary"
     );
 
+    // 3) 각 image_type(upper/lower/front)별로 서로 다른 요약을 llm_summary에 저장
+    const positions = ["upper", "lower", "front"];
+    for (const pos of positions) {
+      const summaryForPos = summaryJson[pos];
+      if (!summaryForPos) continue;
+
+      await pool.query(
+        `
+        UPDATE image_analysis
+        SET llm_summary = ?
+        WHERE user_id = ?
+          AND history_id = ?
+          AND image_type = ?
+        `,
+        [JSON.stringify(summaryForPos), user_id, history_id, pos]
+      );
+    }
+
+    // (원하면 overall_summary / overall_risk_level은
+    //  별도의 history용 테이블이나 컬럼에 저장 가능. 여기선 응답만.)
     return res.json({
       success: true,
-      message: "구강 사진 AI 분석 결과가 저장되었습니다.",
-      data: aiJson,
+      message: "3장 구강 사진에 대한 Gemini 요약이 저장되었습니다.",
+      data: {
+        history_id,
+        user_id,
+        summaries: {
+          upper: summaryJson.upper || null,
+          lower: summaryJson.lower || null,
+          front: summaryJson.front || null,
+        },
+        overall_summary: summaryJson.overall_summary || null,
+        overall_risk_level: summaryJson.overall_risk_level || null,
+      },
     });
   } catch (error) {
-    console.error("image-analysis AI error:", error);
+    console.error("image-analysis summary AI error:", error);
     return res.status(500).json({
       success: false,
-      message: "구강 사진 AI 분석 처리 중 오류가 발생했습니다.",
+      message: "구강 사진 요약 처리 중 오류가 발생했습니다.",
       error: IS_DEV ? error.message : undefined,
     });
   }
@@ -551,6 +558,7 @@ JSON 형식
 // -----------------------------------------------------
 // 4) 구강 사진 분석 상세 조회 API
 // GET /api/ai/image-analysis/history/:historyId?user_id=8
+//   → DB에 이미 저장된 값(Flask 분석 + Gemini 요약)을 그대로 반환
 // -----------------------------------------------------
 router.get("/image-analysis/history/:historyId", async (req, res) => {
   const { historyId } = req.params;
@@ -584,7 +592,8 @@ router.get("/image-analysis/history/:historyId", async (req, res) => {
         cavity_comment,
         overall_score,
         recommendations,
-        ai_confidence
+        ai_confidence,
+        llm_summary
       FROM image_analysis
       WHERE user_id = ?
         AND history_id = ?
@@ -607,7 +616,7 @@ router.get("/image-analysis/history/:historyId", async (req, res) => {
       });
     }
 
-    // 2) cavity_locations JSON 파싱(저장된 값이 문자열이기 때문)
+    // 2) cavity_locations / llm_summary JSON 파싱
     const parseLocations = (value) => {
       if (!value) return [];
       try {
@@ -616,6 +625,16 @@ router.get("/image-analysis/history/:historyId", async (req, res) => {
       } catch (e) {
         console.warn("cavity_locations JSON parse error:", e);
         return [];
+      }
+    };
+
+    const parseSummary = (value) => {
+      if (!value) return null;
+      try {
+        return JSON.parse(value);
+      } catch (e) {
+        console.warn("llm_summary JSON parse error:", e);
+        return null;
       }
     };
 
@@ -637,6 +656,8 @@ router.get("/image-analysis/history/:historyId", async (req, res) => {
       overall_score: r.overall_score !== null ? Number(r.overall_score) : null,
       recommendations: r.recommendations,
       ai_confidence: r.ai_confidence !== null ? Number(r.ai_confidence) : null,
+      // 🔹 각 사진별 Gemini 요약 (upper/lower/front 각각 별도 내용)
+      llm_summary: parseSummary(r.llm_summary),
     }));
 
     // 3) history 단위 메타 정보(대표 timestamp 등) 구성
