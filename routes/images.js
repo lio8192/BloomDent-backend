@@ -719,10 +719,12 @@ router.post(
       for (const tempFilePath of tempFilePaths) {
         deleteTempFile(tempFilePath);
       }
-      // 🔥 Flask에서 3장 모두 분석하면, Node 내부에서 Gemini 요약 API 자동 호출
+      // Flask에서 3장 모두 분석하면, Node 내부에서 Gemini 요약 API 자동 호출
       try {
+        const NODE_PORT = process.env.PORT || 3000; // .env에 맞춰 사용
+
         await axios.post(
-          "http://localhost:8000/api/ai/image-analysis",
+          `http://localhost:${NODE_PORT}/api/ai/image-analysis`,
           {
             user_id: userId,
             history_id: history_id,
